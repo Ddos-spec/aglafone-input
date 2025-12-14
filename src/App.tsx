@@ -10,11 +10,10 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800 }}>
+      <header style={{ marginBottom: 16, textAlign: "center" }}>
+        <h1 style={{ margin: 0, fontSize: "2.2rem", fontWeight: 900, letterSpacing: 0.2 }}>
           Aglafone Input
         </h1>
-        <p className="muted">Dashboard stok, penjualan, dan pembelian</p>
       </header>
 
       <nav className="nav">
