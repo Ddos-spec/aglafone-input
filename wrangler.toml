@@ -1,0 +1,5 @@
+name = "aglafone-input"
+compatibility_date = "2025-12-14"
+
+[site]
+bucket = "./dist"
