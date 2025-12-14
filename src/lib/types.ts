@@ -5,7 +5,8 @@ export type StockItem = {
   qty: number;
   hargaBeli: number;
   hargaJual: number;
-  warna: string[];
+  warna: string[]; // legacy simple colors
+  variantStock?: { name: string; qty: number }[]; // stok per warna
 };
 
 export type SaleItem = {

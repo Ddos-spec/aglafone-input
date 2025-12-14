@@ -1,5 +1,5 @@
 import imageCompression from "browser-image-compression";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
 import { exportPurchaseCSV } from "../lib/export";
@@ -18,6 +18,8 @@ type PurchaseForm = {
   file?: FileList;
 };
 
+type Toast = { id: number; message: string; tone: "success" | "error" };
+
 const defaultValues: PurchaseForm = {
   kode: "",
   nama: "",
@@ -28,23 +30,80 @@ const defaultValues: PurchaseForm = {
   tanggal: new Date().toISOString().slice(0, 10),
 };
 
+const mockHistory: PurchaseTransaction[] = [
+  {
+    id: "PUR-001",
+    total: 1500000,
+    imageUrl: "",
+    items: [
+      {
+        kode: "SKU-010",
+        nama: "Powerbank X",
+        qty: 10,
+        hargaBeli: 150000,
+        supplier: "PT Sumber",
+        warna: "Hitam",
+        tanggal: "2025-12-15",
+      },
+    ],
+  },
+  {
+    id: "PUR-002",
+    total: 900000,
+    imageUrl: "",
+    items: [
+      {
+        kode: "SKU-002",
+        nama: "Charger C",
+        qty: 12,
+        hargaBeli: 75000,
+        supplier: "CV Listrik",
+        warna: "Hitam",
+        tanggal: "2025-12-14",
+      },
+    ],
+  },
+];
+
 export default function PembelianPage() {
-  const { items: stock, applyPurchase, purchases } = useStockStore();
+  const { items: stock, applyPurchase } = useStockStore();
   const [preview, setPreview] = useState<string | undefined>();
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "compressing" | "done">("idle");
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState<PurchaseTransaction[]>(mockHistory);
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
+  const [query, setQuery] = useState("");
   const form = useForm<PurchaseForm>({ defaultValues });
 
+  const filteredStock = useMemo(
+    () =>
+      stock
+        .filter(
+          (s) =>
+            s.kode.toLowerCase().includes(query.toLowerCase()) ||
+            s.nama.toLowerCase().includes(query.toLowerCase()),
+        )
+        .slice(0, 10),
+    [query, stock],
+  );
+
   const onDrop = useCallback(
-    (files: File[]) => {
+    async (files: File[]) => {
       const file = files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => setPreview(reader.result as string);
-      reader.readAsDataURL(file);
-      form.setValue("file", {
-        0: file,
-        length: 1,
-        item: () => file,
-      } as any);
+      setUploadStatus("compressing");
+      setTimeout(async () => {
+        const compressed = await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1280 });
+        const url = await imageCompression.getDataUrlFromFile(compressed);
+        setPreview(url);
+        setUploadStatus("done");
+        form.setValue("file", {
+          0: file,
+          length: 1,
+          item: () => file,
+        } as any);
+      }, 1000);
     },
     [form],
   );
@@ -58,47 +117,10 @@ export default function PembelianPage() {
 
   const totalBelanja = (form.watch("qty") || 0) * (form.watch("hargaBeli") || 0);
 
-  async function compressFile(file: File) {
-    const compressed = await imageCompression(file, {
-      maxSizeMB: 1,
-      maxWidthOrHeight: 1280,
-    });
-    return compressed;
-  }
-
-  async function submit(values: PurchaseForm) {
-    let imageUrl = preview;
-    const file = values.file?.[0];
-    if (file) {
-      const compressed = await compressFile(file);
-      imageUrl = await imageCompression.getDataUrlFromFile(compressed);
-    }
-
-    const item: PurchaseItem = {
-      kode: values.kode,
-      nama: values.nama,
-      qty: values.qty,
-      hargaBeli: values.hargaBeli,
-      supplier: values.supplier,
-      warna: values.warna,
-      tanggal: values.tanggal,
-      imageUrl,
-    };
-
-    const tx: PurchaseTransaction = {
-      id: `PUR-${Date.now()}`,
-      items: [item],
-      total: item.qty * item.hargaBeli,
-      imageUrl,
-    };
-
-    applyPurchase(tx);
-    alert("Pembelian tersimpan (mock upload).");
-    form.reset({
-      ...defaultValues,
-      tanggal: new Date().toISOString().slice(0, 10),
-    });
-    setPreview(undefined);
+  function pushToast(message: string, tone: "success" | "error") {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, tone }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
   }
 
   function fillFromStock(kode: string) {
@@ -106,43 +128,104 @@ export default function PembelianPage() {
     if (found) {
       form.setValue("kode", found.kode);
       form.setValue("nama", found.nama);
-      form.setValue("warna", found.warna[0] || "");
+      form.setValue("warna", found.warna.join(", "));
       form.setValue("hargaBeli", found.hargaBeli);
     }
   }
 
+  async function submit(values: PurchaseForm) {
+    if (!values.supplier) {
+      alert("Supplier wajib diisi");
+      return;
+    }
+    if (!values.kode || !values.nama) {
+      alert("Kode dan nama barang wajib diisi");
+      return;
+    }
+    if (totalBelanja <= 0) {
+      alert("Total tidak boleh 0");
+      return;
+    }
+    setSaving(true);
+    setTimeout(async () => {
+      const item: PurchaseItem = {
+        kode: values.kode,
+        nama: values.nama,
+        qty: values.qty,
+        hargaBeli: values.hargaBeli,
+        supplier: values.supplier,
+        warna: values.warna,
+        tanggal: values.tanggal,
+        imageUrl: preview,
+      };
+      const tx: PurchaseTransaction = {
+        id: `PUR-${Date.now()}`,
+        items: [item],
+        total: item.qty * item.hargaBeli,
+        imageUrl: preview,
+      };
+      applyPurchase(tx);
+      setHistory((prev) => [tx, ...prev]);
+      pushToast("Pembelian disimpan!", "success");
+      form.reset({
+        ...defaultValues,
+        tanggal: new Date().toISOString().slice(0, 10),
+      });
+      setPreview(undefined);
+      setUploadStatus("idle");
+      setSaving(false);
+    }, 1200);
+  }
+
+  function refreshHistory() {
+    setHistoryRefreshing(true);
+    setTimeout(() => setHistoryRefreshing(false), 1000);
+  }
+
   return (
     <div className="grid" style={{ gap: 16 }}>
-      <div className="card">
+      <ToastContainer toasts={toasts} />
+      <div className="card" style={{ padding: "2rem" }}>
         <div className="flex" style={{ justifyContent: "space-between" }}>
           <div>
             <div className="title">Form Pembelian</div>
             <div className="muted">Update stok & unggah foto struk (mock)</div>
           </div>
-          <button className="btn secondary" onClick={() => exportPurchaseCSV(purchases)}>
+          <button
+            className="btn secondary"
+            onClick={() => {
+              alert("Export akan tersedia setelah integrasi backend");
+              exportPurchaseCSV([]);
+            }}
+          >
             Export CSV
           </button>
         </div>
         <div className="divider" />
-        <form className="grid" style={{ gap: 12 }} onSubmit={form.handleSubmit(submit)}>
-          <div className="grid grid-3">
-            <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Kode Barang</span>
+        <form className="grid" style={{ gap: "1.5rem" }} onSubmit={form.handleSubmit(submit)}>
+          <div className="grid grid-3" style={{ gap: "1rem" }}>
+            <div>
+              <div className="muted">Kode Barang</div>
               <input
                 className="input"
-                placeholder="SKU-001"
-                {...form.register("kode")}
+                placeholder="Ketik kode atau nama..."
+                value={form.watch("kode")}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  form.setValue("kode", e.target.value);
+                }}
                 list="kode-list"
                 onBlur={(e) => fillFromStock(e.target.value)}
               />
               <datalist id="kode-list">
-                {stock.map((s) => (
+                {filteredStock.map((s) => (
                   <option key={s.kode} value={s.kode}>
                     {s.nama}
                   </option>
                 ))}
+                <option value="__new">Tambah Barang Baru</option>
               </datalist>
-            </label>
+            </div>
             <label className="grid" style={{ gap: 4 }}>
               <span className="muted">Nama Barang</span>
               <input className="input" {...form.register("nama")} />
@@ -153,15 +236,10 @@ export default function PembelianPage() {
             </label>
           </div>
 
-          <div className="grid grid-3">
+          <div className="grid grid-3" style={{ gap: "1rem" }}>
             <label className="grid" style={{ gap: 4 }}>
               <span className="muted">Qty</span>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                {...form.register("qty", { valueAsNumber: true })}
-              />
+              <input className="input" type="number" min={0} {...form.register("qty", { valueAsNumber: true })} />
             </label>
             <label className="grid" style={{ gap: 4 }}>
               <span className="muted">Harga Beli</span>
@@ -173,12 +251,16 @@ export default function PembelianPage() {
               />
             </label>
             <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Warna</span>
-              <input className="input" {...form.register("warna")} placeholder="Hitam" />
+              <span className="muted">Warna (multi)</span>
+              <input
+                className="input"
+                placeholder="Contoh: black, silver, gold"
+                {...form.register("warna")}
+              />
             </label>
           </div>
 
-          <div className="grid grid-3">
+          <div className="grid grid-3" style={{ gap: "1rem" }}>
             <label className="grid" style={{ gap: 4 }}>
               <span className="muted">Tanggal Pembelian</span>
               <input className="input" type="date" {...form.register("tanggal")} />
@@ -193,48 +275,82 @@ export default function PembelianPage() {
             <div className="muted" style={{ marginBottom: 6 }}>
               Upload Foto Struk (JPG/PNG, max 2MB)
             </div>
-            <div className="upload" {...getRootProps()}>
+            <div
+              className={`upload ${isDragActive ? "upload-hover" : ""}`}
+              style={{ minHeight: 200, position: "relative" }}
+              {...getRootProps()}
+            >
               <input {...getInputProps()} />
-              {isDragActive ? "Lepas file di sini..." : "Drop atau klik untuk upload"}
-              {preview && <div style={{ marginTop: 10 }}>Preview siap.</div>}
+              <div style={{ fontSize: "2rem" }}>⬆</div>
+              <div>Drag & drop atau klik untuk upload</div>
+              {uploadStatus === "compressing" && <div className="muted">Compressing...</div>}
+              {uploadStatus === "done" && <div className="muted">Foto berhasil diupload (compressed)</div>}
             </div>
             {preview && (
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, position: "relative", width: 150 }}>
                 <div
                   className="card-thumb"
                   style={{
+                    width: 150,
+                    height: 150,
                     backgroundImage: `url(${preview})`,
                   }}
                 />
                 <button
-                  className="btn secondary"
+                  className="btn danger"
                   type="button"
-                  style={{ marginTop: 8 }}
-                  onClick={() => setPreview(undefined)}
+                  style={{ position: "absolute", top: 6, right: 6, padding: "6px 8px" }}
+                  onClick={() => {
+                    setPreview(undefined);
+                    setUploadStatus("idle");
+                  }}
                 >
-                  Hapus Foto
+                  Hapus
                 </button>
+                <div className="muted small" style={{ marginTop: 6 }}>
+                  {form.watch("file")?.[0]?.name || "preview.jpg"}
+                </div>
               </div>
             )}
           </div>
 
-          <div className="flex" style={{ justifyContent: "flex-end" }}>
-            <button className="btn" type="submit">
-              Simpan Pembelian
+          <div className="flex" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn" type="submit" disabled={saving}>
+              {saving ? "Menyimpan..." : "Simpan Pembelian"}
             </button>
           </div>
         </form>
       </div>
 
-      <History purchases={purchases} />
+      <History
+        purchases={history}
+        onRefresh={refreshHistory}
+        refreshing={historyRefreshing}
+        onDelete={(id) => setHistory((prev) => prev.filter((p) => p.id !== id))}
+      />
     </div>
   );
 }
 
-function History({ purchases }: { purchases: PurchaseTransaction[] }) {
+function History({
+  purchases,
+  onRefresh,
+  refreshing,
+  onDelete,
+}: {
+  purchases: PurchaseTransaction[];
+  onRefresh: () => void;
+  refreshing: boolean;
+  onDelete: (id: string) => void;
+}) {
   return (
     <div className="card">
-      <div className="title">History Pembelian</div>
+      <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <div className="title">History Pembelian</div>
+        <button className="btn secondary" onClick={onRefresh}>
+          {refreshing ? "⟳ Refreshing..." : "⟳ Refresh"}
+        </button>
+      </div>
       <div className="gallery">
         {purchases.map((p) => {
           const item = p.items[0];
@@ -253,21 +369,19 @@ function History({ purchases }: { purchases: PurchaseTransaction[] }) {
               <div className="muted small">
                 Qty {item.qty} · {formatIDR(item.hargaBeli)} · Supplier: {item.supplier}
               </div>
-              <div className="muted small">Tanggal: {item.tanggal}</div>
+              <div className="muted small">Tanggal: {formatFriendlyDate(item.tanggal)}</div>
               <div className="muted small">Warna: {item.warna}</div>
-              {hasImage ? (
-                <button
-                  className="btn secondary"
-                  style={{ marginTop: 8 }}
-                  onClick={() => window.open(item.imageUrl!, "_blank")}
-                >
-                  Lihat Struk
+              <div className="table-actions" style={{ marginTop: 8 }}>
+                <button className="btn secondary" onClick={() => alert("Detail pembelian (mock)")}>
+                  👁 Lihat
                 </button>
-              ) : (
-                <div className="muted small" style={{ marginTop: 8 }}>
-                  Foto struk belum ada
-                </div>
-              )}
+                <button className="btn" onClick={() => alert("Print mock")}>
+                  🖨 Print
+                </button>
+                <button className="btn danger" onClick={() => onDelete(p.id)}>
+                  🗑 Hapus
+                </button>
+              </div>
             </div>
           );
         })}
@@ -275,4 +389,28 @@ function History({ purchases }: { purchases: PurchaseTransaction[] }) {
       </div>
     </div>
   );
+}
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="toast-container">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast ${t.tone}`}>
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatFriendlyDate(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

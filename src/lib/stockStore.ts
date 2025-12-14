@@ -6,11 +6,15 @@ type StockState = {
   sales: SaleTransaction[];
   purchases: PurchaseTransaction[];
   search: string;
-  filter: "all" | "low" | "mid" | "ok";
+  filter: "all" | "zero" | "low" | "mid" | "ok";
+  colorFilter: string;
   setSearch: (q: string) => void;
   setFilter: (f: StockState["filter"]) => void;
+  setColorFilter: (c: string) => void;
   updatePrice: (id: string, hargaBeli: number, hargaJual: number) => void;
+  updateItem: (id: string, payload: Partial<StockItem>) => void;
   removeItem: (id: string) => void;
+  addItem: (item: StockItem) => void;
   applySale: (tx: SaleTransaction) => void;
   applyPurchase: (tx: PurchaseTransaction) => void;
 };
@@ -24,6 +28,10 @@ const seed: StockItem[] = [
     hargaBeli: 120000,
     hargaJual: 175000,
     warna: ["Hitam", "Putih"],
+    variantStock: [
+      { name: "Hitam", qty: 6 },
+      { name: "Putih", qty: 6 },
+    ],
   },
   {
     id: "2",
@@ -33,6 +41,7 @@ const seed: StockItem[] = [
     hargaBeli: 45000,
     hargaJual: 75000,
     warna: ["Hitam"],
+    variantStock: [{ name: "Hitam", qty: 4 }],
   },
   {
     id: "3",
@@ -42,6 +51,11 @@ const seed: StockItem[] = [
     hargaBeli: 25000,
     hargaJual: 40000,
     warna: ["Hitam", "Merah", "Biru"],
+    variantStock: [
+      { name: "Hitam", qty: 2 },
+      { name: "Merah", qty: 3 },
+      { name: "Biru", qty: 3 },
+    ],
   },
 ];
 
@@ -51,17 +65,27 @@ export const useStockStore = create<StockState>((set, get) => ({
   purchases: [],
   search: "",
   filter: "all",
+  colorFilter: "",
   setSearch: (q) => set({ search: q }),
   setFilter: (f) => set({ filter: f }),
+  setColorFilter: (c) => set({ colorFilter: c }),
   updatePrice: (id, hargaBeli, hargaJual) =>
     set((state) => ({
       items: state.items.map((it) =>
         it.id === id ? { ...it, hargaBeli, hargaJual } : it,
       ),
     })),
+  updateItem: (id, payload) =>
+    set((state) => ({
+      items: state.items.map((it) => (it.id === id ? { ...it, ...payload } : it)),
+    })),
   removeItem: (id) =>
     set((state) => ({
       items: state.items.filter((it) => it.id !== id),
+    })),
+  addItem: (item) =>
+    set((state) => ({
+      items: [{ ...item, id: `new-${Date.now()}` }, ...state.items],
     })),
   applySale: (tx) =>
     set((state) => {
@@ -69,7 +93,13 @@ export const useStockStore = create<StockState>((set, get) => ({
         const found = tx.items.find((s) => s.kode === it.kode);
         if (!found) return it;
         const nextQty = Math.max(0, it.qty - found.qty);
-        return { ...it, qty: nextQty };
+        const nextVariant =
+          it.variantStock?.map((v) =>
+            v.name === found.warna
+              ? { ...v, qty: Math.max(0, v.qty - found.qty) }
+              : v,
+          ) || it.variantStock;
+        return { ...it, qty: nextQty, variantStock: nextVariant };
       });
       return { items: updated, sales: [tx, ...state.sales].slice(0, 50) };
     }),
@@ -78,10 +108,17 @@ export const useStockStore = create<StockState>((set, get) => ({
       const updated = state.items.map((it) => {
         const found = tx.items.find((p) => p.kode === it.kode);
         if (!found) return it;
+        const nextVariant =
+          it.variantStock?.map((v) =>
+            v.name === found.warna
+              ? { ...v, qty: v.qty + found.qty }
+              : v,
+          ) || it.variantStock;
         return {
           ...it,
           qty: it.qty + found.qty,
           hargaBeli: found.hargaBeli,
+          variantStock: nextVariant,
         };
       });
       const newOnes = tx.items.filter(
@@ -96,6 +133,7 @@ export const useStockStore = create<StockState>((set, get) => ({
           hargaBeli: p.hargaBeli,
           hargaJual: Math.round(p.hargaBeli * 1.2),
           warna: [p.warna],
+          variantStock: [{ name: p.warna, qty: p.qty }],
         })),
       );
       return { items: merged, purchases: [tx, ...state.purchases].slice(0, 50) };

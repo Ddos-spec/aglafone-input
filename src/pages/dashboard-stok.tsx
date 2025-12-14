@@ -1,177 +1,478 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { exportStockCSV } from "../lib/export";
 import { formatIDR, stockBadge, useStockStore } from "../lib/stockStore";
 import type { StockItem } from "../lib/types";
 
-type EditForm = {
+type SortKey = "kode" | "nama" | "qty" | "hargaBeli" | "hargaJual";
+
+type AddForm = {
+  kode: string;
+  nama: string;
+  qty: number;
   hargaBeli: number;
   hargaJual: number;
+  warna: string;
 };
 
 export default function DashboardPage() {
-  const { items, search, filter, setSearch, setFilter, updatePrice, removeItem } =
-    useStockStore();
-  const [editing, setEditing] = useState<StockItem | null>(null);
-  const form = useForm<EditForm>({
-    defaultValues: { hargaBeli: 0, hargaJual: 0 },
+  const {
+    items,
+    search,
+    filter,
+    colorFilter,
+    setSearch,
+    setFilter,
+    setColorFilter,
+    updateItem,
+    updatePrice,
+    removeItem,
+    addItem,
+  } = useStockStore();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "kode",
+    dir: "asc",
   });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [editing, setEditing] = useState<StockItem | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<StockItem | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const editForm = useForm<AddForm>({
+    defaultValues: {
+      kode: "",
+      nama: "",
+      qty: 0,
+      hargaBeli: 0,
+      hargaJual: 0,
+      warna: "",
+    },
+  });
+  const addForm = useForm<AddForm>({
+    defaultValues: {
+      kode: "",
+      nama: "",
+      qty: 0,
+      hargaBeli: 0,
+      hargaJual: 0,
+      warna: "",
+    },
+  });
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 800);
+    return () => clearTimeout(t);
+  }, []);
+
+  const uniqueColors = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) =>
+      it.variantStock?.forEach((v) => set.add(v.name)) ?? it.warna.forEach((w) => set.add(w)),
+    );
+    return Array.from(set);
+  }, [items]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return items
-      .filter(
-        (it) =>
-          it.nama.toLowerCase().includes(q) || it.kode.toLowerCase().includes(q),
-      )
+    let list = items
+      .filter((it) => it.nama.toLowerCase().includes(q) || it.kode.toLowerCase().includes(q))
       .filter((it) => {
-        if (filter === "low") return it.qty < 5;
+        if (filter === "zero") return it.qty === 0;
+        if (filter === "low") return it.qty > 0 && it.qty < 5;
         if (filter === "mid") return it.qty >= 5 && it.qty <= 10;
         if (filter === "ok") return it.qty > 10;
         return true;
+      })
+      .filter((it) => {
+        if (!colorFilter) return true;
+        return (
+          it.variantStock?.some((v) => v.name === colorFilter) ||
+          it.warna.includes(colorFilter)
+        );
       });
-  }, [filter, items, search]);
 
-  const totalItems = items.length;
+    list = list.sort((a, b) => {
+      const dir = sort.dir === "asc" ? 1 : -1;
+      if (sort.key === "kode") return a.kode.localeCompare(b.kode) * dir;
+      if (sort.key === "nama") return a.nama.localeCompare(b.nama) * dir;
+      if (sort.key === "qty") return (a.qty - b.qty) * dir;
+      if (sort.key === "hargaBeli") return (a.hargaBeli - b.hargaBeli) * dir;
+      if (sort.key === "hargaJual") return (a.hargaJual - b.hargaJual) * dir;
+      return 0;
+    });
+    return list;
+  }, [colorFilter, filter, items, search, sort.dir, sort.key]);
+
   const totalValue = items.reduce((sum, it) => sum + it.qty * it.hargaBeli, 0);
   const lowCount = items.filter((it) => it.qty < 5).length;
 
-  function openEdit(item: StockItem) {
-    setEditing(item);
-    form.reset({ hargaBeli: item.hargaBeli, hargaJual: item.hargaJual });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const end = start + pageSize;
+  const paged = filtered.slice(start, end);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, filter, search, colorFilter]);
+
+  function toggleSort(key: SortKey) {
+    setSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
   }
 
-  function onSubmit(values: EditForm) {
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    const ids = paged.map((it) => it.id);
+    const allSelected = ids.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        ids.forEach((id) => next.delete(id));
+      } else {
+        ids.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
+
+  function deleteSelected() {
+    selected.forEach((id) => removeItem(id));
+    setSelected(new Set());
+  }
+
+  function handleRefresh() {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 800);
+  }
+
+  function openEdit(item: StockItem) {
+    setEditing(item);
+    editForm.reset({
+      kode: item.kode,
+      nama: item.nama,
+      qty: item.qty,
+      hargaBeli: item.hargaBeli,
+      hargaJual: item.hargaJual,
+      warna: item.variantStock?.map((v) => v.name).join(", ") || item.warna.join(", "),
+    });
+  }
+
+  function submitEdit(values: AddForm) {
     if (!editing) return;
-    updatePrice(editing.id, values.hargaBeli, values.hargaJual);
+    updateItem(editing.id, {
+      nama: values.nama,
+      qty: values.qty,
+      hargaBeli: values.hargaBeli,
+      hargaJual: values.hargaJual,
+      variantStock: values.warna
+        .split(",")
+        .map((w) => w.trim())
+        .filter(Boolean)
+        .map((w) => ({ name: w, qty: values.qty })),
+      warna: values.warna
+        .split(",")
+        .map((w) => w.trim())
+        .filter(Boolean),
+    });
     setEditing(null);
   }
+
+  function submitAdd(values: AddForm) {
+    addItem({
+      id: "",
+      kode: values.kode,
+      nama: values.nama,
+      qty: values.qty,
+      hargaBeli: values.hargaBeli,
+      hargaJual: values.hargaJual,
+      warna: values.warna
+        .split(",")
+        .map((w) => w.trim())
+        .filter(Boolean),
+      variantStock: values.warna
+        .split(",")
+        .map((w) => w.trim())
+        .filter(Boolean)
+        .map((w) => ({ name: w, qty: values.qty })),
+    });
+    addForm.reset();
+    setAdding(false);
+  }
+
+  const isLoading = loading || refreshing;
 
   return (
     <div className="grid" style={{ gap: 16 }}>
       <div className="grid grid-3">
-        <SummaryCard title="Total Items" value={totalItems} />
+        <SummaryCard title="Total Items" value={items.length} />
         <SummaryCard title="Total Stock Value" value={formatIDR(totalValue)} />
-        <SummaryCard title="Low Stock Alert" value={lowCount} tone="alert" />
+        <SummaryCard
+          title="Low Stock Alert"
+          value={lowCount}
+          tone="alert"
+          action={() => setFilter("low")}
+        />
       </div>
 
       <div className="card">
-        <div className="flex" style={{ justifyContent: "space-between" }}>
-          <div className="flex" style={{ flex: 1, minWidth: 260 }}>
-            <input
-              className="input"
-              placeholder="Cari kode / nama..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              className="select"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as any)}
-            >
-              <option value="all">Semua stok</option>
-              <option value="low">Stok rendah (&lt;5)</option>
-              <option value="mid">Stok 5-10</option>
-              <option value="ok">Stok &gt;10</option>
-            </select>
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <div className="flex" style={{ flex: 1, minWidth: 300 }}>
+            <div className="search-box">
+              <span className="search-icon">🔍</span>
+              <input
+                className="input"
+                placeholder="Ketik kode atau nama barang..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <button className="btn secondary" type="button" onClick={handleRefresh}>
+              {refreshing ? "Merefresh..." : "⟳ Refresh"}
+            </button>
           </div>
-          <button className="btn" onClick={() => exportStockCSV(items)}>
-            Export CSV
-          </button>
+          <div className="flex">
+            {selected.size > 0 && (
+              <button className="btn danger" onClick={deleteSelected}>
+                Delete Selected ({selected.size})
+              </button>
+            )}
+            <button className="btn secondary" onClick={() => setAdding(true)}>
+              + Tambah Produk
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                alert("Export akan tersedia setelah integrasi backend");
+                exportStockCSV(items);
+              }}
+            >
+              Export CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="flex" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <select
+            className="select"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as any)}
+          >
+            <option value="all">Semua Stok</option>
+            <option value="zero">Stok Habis (0)</option>
+            <option value="low">Stok Rendah (&lt;5)</option>
+            <option value="mid">Stok Sedang (5-10)</option>
+            <option value="ok">Stok Aman (&gt;10)</option>
+          </select>
+          <select
+            className="select"
+            value={colorFilter}
+            onChange={(e) => setColorFilter(e.target.value)}
+          >
+            <option value="">Semua Warna</option>
+            {uniqueColors.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select
+            className="select"
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+          >
+            {[10, 25, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                Tampilkan {n}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div style={{ overflowX: "auto", marginTop: 12 }}>
           <table className="table">
             <thead>
               <tr>
-                <th>Kode</th>
-                <th>Nama</th>
-                <th>Stok</th>
-                <th>Harga Beli</th>
-                <th>Harga Jual</th>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={paged.length > 0 && paged.every((it) => selected.has(it.id))}
+                    onChange={selectAllVisible}
+                  />
+                </th>
+                <SortableHeader label="Kode" active={sort.key === "kode"} dir={sort.dir} onClick={() => toggleSort("kode")} />
+                <SortableHeader label="Nama" active={sort.key === "nama"} dir={sort.dir} onClick={() => toggleSort("nama")} />
+                <SortableHeader label="Stok" active={sort.key === "qty"} dir={sort.dir} onClick={() => toggleSort("qty")} />
+                <SortableHeader label="Harga Beli" active={sort.key === "hargaBeli"} dir={sort.dir} onClick={() => toggleSort("hargaBeli")} />
+                <SortableHeader label="Harga Jual" active={sort.key === "hargaJual"} dir={sort.dir} onClick={() => toggleSort("hargaJual")} />
                 <th>Warna</th>
                 <th>Aksi</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((it) => (
-                <tr key={it.id}>
-                  <td>{it.kode}</td>
-                  <td>{it.nama}</td>
-                  <td>
-                    <span className={`badge ${stockBadge(it.qty)}`}>
-                      ● {it.qty}
-                    </span>
-                  </td>
-                  <td>{formatIDR(it.hargaBeli)}</td>
-                  <td>{formatIDR(it.hargaJual)}</td>
-                  <td>
-                    <div className="pill-group">
-                      {it.warna.map((w) => (
-                        <span key={w} className="tag">
-                          {w}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="table-actions">
-                      <button className="btn secondary" onClick={() => openEdit(it)}>
-                        Edit
-                      </button>
-                      <button className="btn danger" onClick={() => removeItem(it.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!filtered.length && (
+              {isLoading
+                ? Array.from({ length: 4 }).map((_, idx) => (
+                    <tr key={idx}>
+                      <td colSpan={8} style={{ padding: 12 }}>
+                        <div className="skeleton" />
+                      </td>
+                    </tr>
+                  ))
+                : paged.map((it) => (
+                    <tr key={it.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(it.id)}
+                          onChange={() => toggleSelect(it.id)}
+                        />
+                      </td>
+                      <td>{it.kode}</td>
+                      <td>{it.nama}</td>
+                      <td>
+                        <span className={`badge ${stockBadge(it.qty)}`}>● {it.qty}</span>
+                      </td>
+                      <td>{formatIDR(it.hargaBeli)}</td>
+                      <td>{formatIDR(it.hargaJual)}</td>
+                      <td>
+                        <ColorBadges item={it} />
+                      </td>
+                      <td>
+                        <div className="table-actions">
+                          <button className="btn secondary" onClick={() => openEdit(it)}>
+                            Edit
+                          </button>
+                          <button className="btn danger" onClick={() => setConfirmDelete(it)}>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              {!isLoading && !paged.length && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: 16 }}>
-                    Tidak ada data.
+                  <td colSpan={8} style={{ textAlign: "center", padding: 16 }}>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <div style={{ fontSize: "2rem" }}>🔍</div>
+                      <div>Tidak ada data ditemukan</div>
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        <div className="table-card">
+          {isLoading
+            ? Array.from({ length: 4 }).map((_, idx) => (
+                <div key={idx} className="card">
+                  <div className="skeleton" />
+                </div>
+              ))
+            : paged.map((it) => (
+                <div key={it.id} className="card">
+                  <div className="title">{it.nama}</div>
+                  <div className="muted small">{it.kode}</div>
+                  <div className="muted small">Stok: {it.qty}</div>
+                  <div className="muted small">Harga beli: {formatIDR(it.hargaBeli)}</div>
+                  <div className="muted small">Harga jual: {formatIDR(it.hargaJual)}</div>
+                  <ColorBadges item={it} />
+                  <div className="table-actions" style={{ marginTop: 8 }}>
+                    <button className="btn secondary" onClick={() => openEdit(it)}>
+                      Edit
+                    </button>
+                    <button className="btn danger" onClick={() => setConfirmDelete(it)}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+          {!isLoading && !paged.length && <div className="muted">Tidak ada data ditemukan</div>}
+        </div>
+
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          totalItems={filtered.length}
+          onPageChange={setPage}
+        />
       </div>
 
+      {adding && (
+        <Modal onClose={() => setAdding(false)} title="Tambah Produk">
+          <form className="grid" style={{ gap: 10 }} onSubmit={addForm.handleSubmit(submitAdd)}>
+            <InputField label="Kode" register={addForm.register("kode", { required: true })} />
+            <InputField label="Nama" register={addForm.register("nama", { required: true })} />
+            <InputField label="Qty" type="number" register={addForm.register("qty", { valueAsNumber: true, required: true })} />
+            <InputField label="Harga Beli" type="number" register={addForm.register("hargaBeli", { valueAsNumber: true, required: true })} />
+            <InputField label="Harga Jual" type="number" register={addForm.register("hargaJual", { valueAsNumber: true, required: true })} />
+            <InputField label="Warna (pisah dengan koma)" register={addForm.register("warna")} />
+            <div className="flex" style={{ justifyContent: "flex-end" }}>
+              <button className="btn secondary" type="button" onClick={() => setAdding(false)}>
+                Batal
+              </button>
+              <button className="btn" type="submit">
+                Simpan
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {editing && (
-        <div className="modal-backdrop" onClick={() => setEditing(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Edit Harga</h3>
-            <form className="grid" style={{ gap: 12 }} onSubmit={form.handleSubmit(onSubmit)}>
-              <label className="grid" style={{ gap: 4 }}>
-                <span className="muted">Harga Beli</span>
-                <input
-                  className="input"
-                  type="number"
-                  step="100"
-                  {...form.register("hargaBeli", { valueAsNumber: true })}
-                />
-              </label>
-              <label className="grid" style={{ gap: 4 }}>
-                <span className="muted">Harga Jual</span>
-                <input
-                  className="input"
-                  type="number"
-                  step="100"
-                  {...form.register("hargaJual", { valueAsNumber: true })}
-                />
-              </label>
-              <div className="flex" style={{ justifyContent: "flex-end" }}>
-                <button className="btn secondary" type="button" onClick={() => setEditing(null)}>
-                  Batal
-                </button>
-                <button className="btn" type="submit">
-                  Simpan
-                </button>
-              </div>
-            </form>
+        <Modal onClose={() => setEditing(null)} title="Edit Produk">
+          <form className="grid" style={{ gap: 10 }} onSubmit={editForm.handleSubmit(submitEdit)}>
+            <InputField label="Kode" value={editing.kode} readOnly />
+            <InputField label="Nama" register={editForm.register("nama", { required: true })} />
+            <InputField label="Stok" type="number" register={editForm.register("qty", { valueAsNumber: true })} />
+            <InputField label="Harga Beli" type="number" register={editForm.register("hargaBeli", { valueAsNumber: true })} />
+            <InputField label="Harga Jual" type="number" register={editForm.register("hargaJual", { valueAsNumber: true })} />
+            <InputField label="Warna (pisah dengan koma)" register={editForm.register("warna")} />
+            <div className="flex" style={{ justifyContent: "flex-end" }}>
+              <button className="btn secondary" type="button" onClick={() => setEditing(null)}>
+                Batal
+              </button>
+              <button className="btn" type="submit">
+                Simpan Perubahan
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {confirmDelete && (
+        <Modal onClose={() => setConfirmDelete(null)} title="Konfirmasi Hapus">
+          <p>Yakin hapus {confirmDelete.nama}?</p>
+          <div className="flex" style={{ justifyContent: "flex-end" }}>
+            <button className="btn secondary" onClick={() => setConfirmDelete(null)}>
+              Batal
+            </button>
+            <button
+              className="btn danger"
+              onClick={() => {
+                removeItem(confirmDelete.id);
+                setConfirmDelete(null);
+              }}
+            >
+              Hapus
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -181,23 +482,165 @@ function SummaryCard({
   title,
   value,
   tone,
+  action,
 }: {
   title: string;
   value: number | string;
   tone?: "alert";
+  action?: () => void;
 }) {
   return (
-    <div className="card">
+    <div
+      className="card"
+      style={{
+        background: tone === "alert" ? "#fff4e5" : "#ffffff",
+        borderColor: tone === "alert" ? "#f59e0b" : undefined,
+      }}
+    >
       <div className="muted">{title}</div>
       <div
         style={{
           fontSize: "1.6rem",
           fontWeight: 800,
-          color: tone === "alert" ? "#b91c1c" : "#0f172a",
+          color: tone === "alert" ? "#b45309" : "#0f172a",
         }}
       >
         {value}
       </div>
+      {action && (
+        <button className="btn secondary" style={{ marginTop: 8 }} onClick={action}>
+          Lihat stok rendah
+        </button>
+      )}
     </div>
+  );
+}
+
+function ColorBadges({ item }: { item: StockItem }) {
+  const colors = item.variantStock?.map((v) => v.name) ?? item.warna;
+  const toShow = colors.slice(0, 3);
+  const rest = colors.length - toShow.length;
+  const tooltip = colors.join(", ");
+  return (
+    <div className="pill-group">
+      {toShow.map((w) => (
+        <span key={w} className="tag" title={tooltip}>
+          {w}
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="tag" title={tooltip}>
+          +{rest} lainnya
+        </span>
+      )}
+    </div>
+  );
+}
+
+function Pagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const start = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const end = Math.min(totalItems, currentPage * pageSize);
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1).slice(0, 5);
+  return (
+    <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+      <div className="muted small">
+        Showing {start}-{end} of {totalItems} items
+      </div>
+      <div className="flex">
+        <button className="btn secondary" disabled={currentPage === 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))}>
+          Previous
+        </button>
+        {pages.map((p) => (
+          <button
+            key={p}
+            className={`btn secondary ${p === currentPage ? "active-page" : ""}`}
+            onClick={() => onPageChange(p)}
+          >
+            {p}
+          </button>
+        ))}
+        <button className="btn secondary" disabled={currentPage === totalPages} onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <th style={{ cursor: "pointer" }} onClick={onClick}>
+      {label} {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+    </th>
+  );
+}
+
+function Modal({
+  children,
+  title,
+  onClose,
+}: {
+  children: React.ReactNode;
+  title: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="title" style={{ marginTop: 0 }}>
+          {title}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function InputField({
+  label,
+  register,
+  type,
+  readOnly,
+  value,
+}: {
+  label: string;
+  register?: any;
+  type?: string;
+  readOnly?: boolean;
+  value?: string | number;
+}) {
+  return (
+    <label className="grid" style={{ gap: 4 }}>
+      <span className="muted">{label}</span>
+      <input
+        className="input"
+        type={type || "text"}
+        readOnly={readOnly}
+        value={value}
+        {...register}
+      />
+    </label>
   );
 }
