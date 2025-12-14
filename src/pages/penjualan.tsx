@@ -19,23 +19,25 @@ type SaleForm = {
   }[];
 };
 
+const defaultValues: SaleForm = {
+  customer: "",
+  tanggal: new Date().toISOString().slice(0, 10),
+  items: [
+    {
+      kode: "",
+      nama: "",
+      warna: "",
+      qty: 1,
+      hargaJual: 0,
+      subtotal: 0,
+    },
+  ],
+};
+
 export default function PenjualanPage() {
   const { items: stock, applySale, sales } = useStockStore();
   const form = useForm<SaleForm>({
-    defaultValues: {
-      customer: "",
-      tanggal: new Date().toISOString().slice(0, 10),
-      items: [
-        {
-          kode: "",
-          nama: "",
-          warna: "",
-          qty: 1,
-          hargaJual: 0,
-          subtotal: 0,
-        },
-      ],
-    },
+    defaultValues,
   });
 
   const { fields, append, remove, update } = useFieldArray({
@@ -104,8 +106,10 @@ export default function PenjualanPage() {
     applySale(tx);
     generatePDF(tx);
     alert("Penjualan tersimpan & struk diunduh.");
-    form.reset();
-    form.setValue("tanggal", new Date().toISOString().slice(0, 10));
+    form.reset({
+      ...defaultValues,
+      tanggal: new Date().toISOString().slice(0, 10),
+    });
   }
 
   return (

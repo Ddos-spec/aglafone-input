@@ -1,10 +1,10 @@
 import imageCompression from "browser-image-compression";
 import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useDropzone } from "react-dropzone";
 import { exportPurchaseCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { PurchaseItem, PurchaseTransaction, StockItem } from "../lib/types";
-import { useDropzone } from "react-dropzone";
 
 type PurchaseForm = {
   kode: string;
@@ -18,33 +18,36 @@ type PurchaseForm = {
   file?: FileList;
 };
 
+const defaultValues: PurchaseForm = {
+  kode: "",
+  nama: "",
+  qty: 1,
+  hargaBeli: 0,
+  supplier: "",
+  warna: "",
+  tanggal: new Date().toISOString().slice(0, 10),
+};
+
 export default function PembelianPage() {
   const { items: stock, applyPurchase, purchases } = useStockStore();
   const [preview, setPreview] = useState<string | undefined>();
-  const form = useForm<PurchaseForm>({
-    defaultValues: {
-      kode: "",
-      nama: "",
-      qty: 1,
-      hargaBeli: 0,
-      supplier: "",
-      warna: "",
-      tanggal: new Date().toISOString().slice(0, 10),
-    },
-  });
+  const form = useForm<PurchaseForm>({ defaultValues });
 
-  const onDrop = useCallback((files: File[]) => {
-    const file = files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPreview(reader.result as string);
-    reader.readAsDataURL(file);
-    form.setValue("file", {
-      0: file,
-      length: 1,
-      item: (idx: number) => file,
-    } as any);
-  }, [form]);
+  const onDrop = useCallback(
+    (files: File[]) => {
+      const file = files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => setPreview(reader.result as string);
+      reader.readAsDataURL(file);
+      form.setValue("file", {
+        0: file,
+        length: 1,
+        item: () => file,
+      } as any);
+    },
+    [form],
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -56,7 +59,10 @@ export default function PembelianPage() {
   const totalBelanja = (form.watch("qty") || 0) * (form.watch("hargaBeli") || 0);
 
   async function compressFile(file: File) {
-    const compressed = await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1280 });
+    const compressed = await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1280,
+    });
     return compressed;
   }
 
@@ -88,13 +94,15 @@ export default function PembelianPage() {
 
     applyPurchase(tx);
     alert("Pembelian tersimpan (mock upload).");
-    form.reset();
+    form.reset({
+      ...defaultValues,
+      tanggal: new Date().toISOString().slice(0, 10),
+    });
     setPreview(undefined);
-    form.setValue("tanggal", new Date().toISOString().slice(0, 10));
   }
 
   function fillFromStock(kode: string) {
-    const found = stock.find((s) => s.kode === kode);
+    const found: StockItem | undefined = stock.find((s) => s.kode === kode);
     if (found) {
       form.setValue("kode", found.kode);
       form.setValue("nama", found.nama);
@@ -148,7 +156,12 @@ export default function PembelianPage() {
           <div className="grid grid-3">
             <label className="grid" style={{ gap: 4 }}>
               <span className="muted">Qty</span>
-              <input className="input" type="number" min={0} {...form.register("qty", { valueAsNumber: true })} />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                {...form.register("qty", { valueAsNumber: true })}
+              />
             </label>
             <label className="grid" style={{ gap: 4 }}>
               <span className="muted">Harga Beli</span>
@@ -193,7 +206,12 @@ export default function PembelianPage() {
                     backgroundImage: `url(${preview})`,
                   }}
                 />
-                <button className="btn secondary" type="button" style={{ marginTop: 8 }} onClick={() => setPreview(undefined)}>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  style={{ marginTop: 8 }}
+                  onClick={() => setPreview(undefined)}
+                >
                   Hapus Foto
                 </button>
               </div>
@@ -220,6 +238,7 @@ function History({ purchases }: { purchases: PurchaseTransaction[] }) {
       <div className="gallery">
         {purchases.map((p) => {
           const item = p.items[0];
+          const hasImage = Boolean(item.imageUrl);
           return (
             <div key={p.id} className="card">
               <div
@@ -236,9 +255,19 @@ function History({ purchases }: { purchases: PurchaseTransaction[] }) {
               </div>
               <div className="muted small">Tanggal: {item.tanggal}</div>
               <div className="muted small">Warna: {item.warna}</div>
-              <button className="btn secondary" style={{ marginTop: 8 }} onClick={() => window.open(item.imageUrl || "#", "_blank")}>
-                Lihat Struk
-              </button>
+              {hasImage ? (
+                <button
+                  className="btn secondary"
+                  style={{ marginTop: 8 }}
+                  onClick={() => window.open(item.imageUrl!, "_blank")}
+                >
+                  Lihat Struk
+                </button>
+              ) : (
+                <div className="muted small" style={{ marginTop: 8 }}>
+                  Foto struk belum ada
+                </div>
+              )}
             </div>
           );
         })}
