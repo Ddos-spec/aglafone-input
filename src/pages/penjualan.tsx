@@ -1,10 +1,9 @@
-import { Combobox } from "@headlessui/react";
 import autoTable from "jspdf-autotable";
 import jsPDF from "jspdf";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { exportSalesCSV } from "../lib/export";
-import { formatIDR, stockBadge, useStockStore } from "../lib/stockStore";
+import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { SaleItem, SaleTransaction, StockItem } from "../lib/types";
 
 type SaleForm = {
@@ -61,11 +60,12 @@ const mockHistory: SaleTransaction[] = [
 export default function PenjualanPage() {
   const { items: stock, applySale } = useStockStore();
   const form = useForm<SaleForm>({ defaultValues });
-  const { fields, append, remove, update } = useFieldArray({
+  const { fields, append, remove, update } = useFieldArray<SaleForm, "items">({
     control: form.control,
     name: "items",
   });
   const [queries, setQueries] = useState<string[]>([""]);
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [lastTx, setLastTx] = useState<SaleTransaction | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -76,10 +76,13 @@ export default function PenjualanPage() {
     setQueries(new Array(fields.length).fill(""));
   }, [fields.length]);
 
-  const watchedItems = form.watch("items") || [];
-  const grandTotal = watchedItems.reduce((sum, it) => sum + (it.subtotal || 0), 0);
+  const watchedItems = (form.watch("items") as SaleForm["items"]) || [];
+  const grandTotal = watchedItems.reduce(
+    (sum: number, it: SaleForm["items"][number]) => sum + (it.subtotal || 0),
+    0,
+  );
 
-  const invalidQty = watchedItems.some((it) => {
+  const invalidQty = watchedItems.some((it: SaleForm["items"][number]) => {
     const stok = stock.find((s) => s.kode === it.kode);
     return stok && it.qty > stok.qty;
   });
@@ -163,7 +166,7 @@ export default function PenjualanPage() {
         ...it,
         subtotal: it.qty * it.hargaJual,
       }));
-      const total = txItems.reduce((sum, it) => sum + it.subtotal, 0);
+      const total = txItems.reduce((sum: number, it: SaleItem) => sum + it.subtotal, 0);
       const tx: SaleTransaction = {
         id: txId,
         customer: values.customer || "Umum",
@@ -233,13 +236,16 @@ export default function PenjualanPage() {
           </div>
 
           <div className="grid" style={{ gap: 8 }}>
-            {fields.map((field, idx) => {
+            {fields.map((field: typeof fields[number], idx: number) => {
               const kode = form.watch(`items.${idx}.kode`);
               const stok = stock.find((s) => s.kode === kode);
-              const colorOptions = stok?.variantStock || stok?.warna.map((w) => ({ name: w, qty: stok.qty })) || [];
+              const colorOptions =
+                stok?.variantStock ||
+                stok?.warna.map((w) => ({ name: w, qty: stok?.qty || 0 })) ||
+                [];
               const stockText = stok ? `Stok: ${stok.qty} unit` : "Stok: -";
               const stockTone = stok
-                ? stock.qty < 5
+                ? stok.qty < 5
                   ? "red"
                   : stok.qty <= 10
                     ? "yellow"
@@ -261,15 +267,12 @@ export default function PenjualanPage() {
                   >
                     <div>
                       <div className="muted">Kode Barang</div>
-                      <Combobox
-                        value={form.watch(`items.${idx}.kode`)}
-                        onChange={(val) => {
-                          const found = stock.find((s) => s.kode === val);
-                          selectStock(idx, found);
-                        }}
-                      >
-                        <Combobox.Input
+                      <div style={{ position: "relative" }}>
+                        <input
                           className="input"
+                          value={form.watch(`items.${idx}.kode`)}
+                          onFocus={() => setOpenIdx(idx)}
+                          onBlur={() => setTimeout(() => setOpenIdx(null), 150)}
                           onChange={(e) => {
                             form.setValue(`items.${idx}.kode`, e.target.value);
                             setQueries((prev) => {
@@ -277,25 +280,40 @@ export default function PenjualanPage() {
                               next[idx] = e.target.value;
                               return next;
                             });
+                            setOpenIdx(idx);
                           }}
                           placeholder="Cari kode atau nama..."
                         />
-                        <Combobox.Options
-                          className="card"
-                          style={{ marginTop: 6, maxHeight: 180, overflowY: "auto" }}
-                        >
-                          {filteredStock(queries[idx] || "").map((item) => (
-                            <Combobox.Option
-                              key={item.kode}
-                              value={item.kode}
-                              className="muted"
-                              style={{ padding: 8, cursor: "pointer" }}
-                            >
-                              {item.kode} - {item.nama} (Stok: {item.qty})
-                            </Combobox.Option>
-                          ))}
-                        </Combobox.Options>
-                      </Combobox>
+                        {openIdx === idx && filteredStock(queries[idx] || "").length > 0 && (
+                          <div
+                            className="card"
+                            style={{
+                              position: "absolute",
+                              top: "110%",
+                              left: 0,
+                              right: 0,
+                              zIndex: 10,
+                              maxHeight: 200,
+                              overflowY: "auto",
+                            }}
+                          >
+                            {filteredStock(queries[idx] || "").map((item) => (
+                              <div
+                                key={item.kode}
+                                className="muted"
+                                style={{ padding: 8, cursor: "pointer" }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  selectStock(idx, item);
+                                  setOpenIdx(null);
+                                }}
+                              >
+                                {item.kode} - {item.nama} (Stok: {item.qty})
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <label className="grid" style={{ gap: 4 }}>
                       <span className="muted">Nama Barang</span>
