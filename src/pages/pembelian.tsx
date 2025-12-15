@@ -91,21 +91,28 @@ export default function PembelianPage() {
       const response = await apiCall<any[]>(API_ENDPOINTS.riwayatPembelian, { action: "read" });
       console.log("[Pembelian] Riwayat response:", response);
 
+      // Handle both array and single object response
+      const dataArray = Array.isArray(response) ? response : [response];
+
       // Map response to PurchaseTransaction format
-      const mapped: PurchaseTransaction[] = (response || []).map((row: any) => ({
-        id: row.id || row.transaction_id || `px-${Date.now()}`,
-        items: row.items || [{
-          kode: row.kode_barang || "",
-          nama: row.nama_barang || "",
-          qty: row.qty || 0,
-          hargaBeli: row.harga_beli || 0,
-          warna: row.warna || "",
-          supplier: row.supplier || "",
-          tanggal: row.tanggal || "",
-        }],
-        total: row.total || row.grand_total || 0,
-        imageUrl: row.foto_url || undefined,
-      }));
+      const mapped: PurchaseTransaction[] = dataArray
+        .filter((row: any) => row && row.id) // Filter valid rows
+        .map((row: any, idx: number) => ({
+          id: row.id || `px-${Date.now()}-${idx}`,
+          items: [{
+            kode: row.kode_barang || "",
+            nama: row.nama_barang || "",
+            qty: Number(row.qty) || 0,
+            hargaBeli: Number(row.harga_beli) || 0,
+            warna: row.warna || "",
+            supplier: row.supplier || "",
+            tanggal: row.tanggal || "",
+          }],
+          total: Number(row.total) || Number(row.grand_total) || 0,
+          imageUrl: row.foto_url || undefined,
+        }));
+
+      console.log("[Pembelian] Mapped history:", mapped);
       setHistory(mapped);
     } catch (error: any) {
       console.error("[Pembelian] Fetch riwayat error:", error);
