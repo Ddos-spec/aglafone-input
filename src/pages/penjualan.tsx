@@ -6,6 +6,7 @@ import { API_ENDPOINTS, apiCall } from "../config/api";
 import { exportSalesCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { SaleItem, SaleTransaction, StockItem } from "../lib/types";
+import { generatePenjualanId } from "../utils/generateId";
 
 type SaleForm = {
   customer: string;
@@ -119,58 +120,99 @@ export default function PenjualanPage() {
   }
 
   async function submit(values: SaleForm) {
+    if (!API_ENDPOINTS.penjualan) {
+      pushToast("Konfigurasi webhook penjualan belum diset.", "error");
+      return;
+    }
     if (!values.customer) {
-      alert("Customer wajib diisi");
+      pushToast("Customer wajib diisi.", "error");
       return;
     }
     if (!values.items.length) {
-      alert("Tambahkan minimal 1 item");
+      pushToast("Tambahkan minimal 1 item.", "error");
       return;
     }
-    if (grandTotal <= 0) {
-      alert("Total tidak boleh 0");
+    const tanggal = values.tanggal;
+    const parsedDate = new Date(tanggal);
+    if (!tanggal || Number.isNaN(parsedDate.getTime())) {
+      pushToast("Tanggal tidak valid.", "error");
       return;
     }
-    const invalid = values.items.find((it) => {
+    const invalidItem = values.items.find(
+      (it) =>
+        !it.kode ||
+        !it.nama ||
+        !it.warna ||
+        !Number.isFinite(it.qty) ||
+        !Number.isFinite(it.hargaJual) ||
+        it.qty <= 0 ||
+        it.hargaJual < 0,
+    );
+    if (invalidItem) {
+      pushToast("Lengkapi data item dan pastikan angka valid.", "error");
+      return;
+    }
+    const invalidStock = values.items.find((it) => {
       const stok = stock.find((s) => s.kode === it.kode);
       return stok && it.qty > stok.qty;
     });
-    if (invalid) {
+    if (invalidStock) {
       pushToast("Gagal menyimpan transaksi! Stok tidak cukup.", "error");
       return;
     }
+
+    const itemsPayload = values.items.map((it) => {
+      const itemTotal = (Number(it.qty) || 0) * (Number(it.hargaJual) || 0);
+      return {
+        kode_barang: it.kode,
+        nama_barang: it.nama,
+        qty: it.qty,
+        harga_jual: it.hargaJual,
+        warna: it.warna,
+        total: itemTotal,
+      };
+    });
+    const total = itemsPayload.reduce((sum, it) => sum + it.total, 0);
+    if (total <= 0) {
+      pushToast("Total tidak boleh 0.", "error");
+      return;
+    }
+
     setSaving(true);
     try {
+      const payload = {
+        id: generatePenjualanId(),
+        customer: values.customer,
+        tanggal,
+        items: itemsPayload,
+        total,
+        created_at: new Date().toISOString(),
+      };
+      const response = await apiCall(API_ENDPOINTS.penjualan, payload);
+      if (response && typeof response === "object" && "success" in response && response.success === false) {
+        throw new Error((response as any).message || "Gagal menyimpan transaksi!");
+      }
       const txItems: SaleItem[] = values.items.map((it) => ({
         ...it,
         subtotal: it.qty * it.hargaJual,
       }));
-      const total = txItems.reduce((sum: number, it: SaleItem) => sum + it.subtotal, 0);
-      const payload = {
-        customer: values.customer,
-        tanggal: values.tanggal,
-        items: txItems,
-        total,
-        created_at: new Date().toISOString(),
-      };
-      await apiCall(API_ENDPOINTS.penjualan, payload);
       const tx: SaleTransaction = {
-        id: `SALES-${Date.now()}`,
+        id: payload.id,
         customer: values.customer || "Umum",
-        timestamp: new Date(values.tanggal).toISOString(),
+        timestamp: new Date(tanggal).toISOString(),
         items: txItems,
         total,
       };
       applySale(tx);
       setHistory((prev) => [tx, ...prev]);
       setLastTx(tx);
-      pushToast("Transaksi berhasil disimpan!", "success");
+      pushToast((response as any)?.message || "Transaksi berhasil disimpan!", "success");
       form.reset({
         ...defaultValues,
         tanggal: new Date().toISOString().slice(0, 10),
       });
-    } catch (error) {
-      pushToast("Gagal menyimpan transaksi!", "error");
+    } catch (error: any) {
+      pushToast(error?.message || "Gagal menyimpan transaksi!", "error");
     } finally {
       setSaving(false);
     }
