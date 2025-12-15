@@ -1,11 +1,13 @@
-// Ambil webhook URL dari environment variable
-const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
+// Ambil webhook URLs dari environment variables
+const WEBHOOK_PENJUALAN = import.meta.env.VITE_N8N_WEBHOOK_PENJUALAN;
+const WEBHOOK_PEMBELIAN = import.meta.env.VITE_N8N_WEBHOOK_PEMBELIAN;
+const WEBHOOK_STOK = import.meta.env.VITE_N8N_WEBHOOK_STOK;
 
 // Export endpoints
 export const API_ENDPOINTS = {
-  penjualan: `${N8N_WEBHOOK_URL}/penjualan`,
-  pembelian: `${N8N_WEBHOOK_URL}/pembelian`,
-  stok: `${N8N_WEBHOOK_URL}/stok`,
+  penjualan: WEBHOOK_PENJUALAN,
+  pembelian: WEBHOOK_PEMBELIAN,
+  stok: WEBHOOK_STOK,
 } as const;
 
 // Helper function untuk API calls
