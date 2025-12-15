@@ -2,6 +2,7 @@ import imageCompression from "browser-image-compression";
 import { useCallback, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
+import { API_ENDPOINTS, apiCall } from "../config/api";
 import { exportPurchaseCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { PurchaseItem, PurchaseTransaction, StockItem } from "../lib/types";
@@ -147,7 +148,7 @@ export default function PembelianPage() {
       return;
     }
     setSaving(true);
-    setTimeout(async () => {
+    try {
       const item: PurchaseItem = {
         kode: values.kode,
         nama: values.nama,
@@ -158,6 +159,19 @@ export default function PembelianPage() {
         tanggal: values.tanggal,
         imageUrl: preview,
       };
+      const payload = {
+        kode_barang: values.kode,
+        nama_barang: values.nama,
+        qty: values.qty,
+        harga_beli: values.hargaBeli,
+        supplier: values.supplier,
+        warna: values.warna,
+        tanggal: values.tanggal,
+        foto_url: preview || "",
+        total: item.qty * item.hargaBeli,
+        created_at: new Date().toISOString(),
+      };
+      await apiCall(API_ENDPOINTS.pembelian, payload);
       const tx: PurchaseTransaction = {
         id: `PUR-${Date.now()}`,
         items: [item],
@@ -166,15 +180,18 @@ export default function PembelianPage() {
       };
       applyPurchase(tx);
       setHistory((prev) => [tx, ...prev]);
-      pushToast("Pembelian disimpan!", "success");
+      pushToast("Pembelian berhasil disimpan!", "success");
       form.reset({
         ...defaultValues,
         tanggal: new Date().toISOString().slice(0, 10),
       });
       setPreview(undefined);
       setUploadStatus("idle");
+    } catch (error) {
+      pushToast("Gagal menyimpan pembelian!", "error");
+    } finally {
       setSaving(false);
-    }, 1200);
+    }
   }
 
   function refreshHistory() {

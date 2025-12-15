@@ -2,6 +2,7 @@ import autoTable from "jspdf-autotable";
 import jsPDF from "jspdf";
 import { useEffect, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
+import { API_ENDPOINTS, apiCall } from "../config/api";
 import { exportSalesCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { SaleItem, SaleTransaction, StockItem } from "../lib/types";
@@ -138,7 +139,7 @@ export default function PenjualanPage() {
     });
   }
 
-  function submit(values: SaleForm) {
+  async function submit(values: SaleForm) {
     if (!values.customer) {
       alert("Customer wajib diisi");
       return;
@@ -160,15 +161,22 @@ export default function PenjualanPage() {
       return;
     }
     setSaving(true);
-    setTimeout(() => {
-      const txId = `SALES-${Date.now()}`;
+    try {
       const txItems: SaleItem[] = values.items.map((it) => ({
         ...it,
         subtotal: it.qty * it.hargaJual,
       }));
       const total = txItems.reduce((sum: number, it: SaleItem) => sum + it.subtotal, 0);
+      const payload = {
+        customer: values.customer,
+        tanggal: values.tanggal,
+        items: txItems,
+        total,
+        created_at: new Date().toISOString(),
+      };
+      await apiCall(API_ENDPOINTS.penjualan, payload);
       const tx: SaleTransaction = {
-        id: txId,
+        id: `SALES-${Date.now()}`,
         customer: values.customer || "Umum",
         timestamp: new Date(values.tanggal).toISOString(),
         items: txItems,
@@ -182,8 +190,11 @@ export default function PenjualanPage() {
         ...defaultValues,
         tanggal: new Date().toISOString().slice(0, 10),
       });
+    } catch (error) {
+      pushToast("Gagal menyimpan transaksi!", "error");
+    } finally {
       setSaving(false);
-    }, 1800);
+    }
   }
 
   function handlePrint() {
