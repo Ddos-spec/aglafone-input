@@ -8,6 +8,7 @@ type StockState = {
   search: string;
   filter: "all" | "zero" | "low" | "mid" | "ok";
   colorFilter: string;
+  setItems: (items: StockItem[]) => void;
   setSearch: (q: string) => void;
   setFilter: (f: StockState["filter"]) => void;
   setColorFilter: (c: string) => void;
@@ -26,6 +27,7 @@ export const useStockStore = create<StockState>((set, get) => ({
   search: "",
   filter: "all",
   colorFilter: "",
+  setItems: (items) => set({ items }),
   setSearch: (q) => set({ search: q }),
   setFilter: (f) => set({ filter: f }),
   setColorFilter: (c) => set({ colorFilter: c }),
