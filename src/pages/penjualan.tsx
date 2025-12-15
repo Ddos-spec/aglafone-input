@@ -91,11 +91,13 @@ export default function PenjualanPage() {
 
   function selectStock(rowIdx: number, item: StockItem | undefined) {
     if (!item) return;
+    // Get first available color or empty if none
+    const firstColor = item.variantStock?.[0]?.name || item.warna[0] || "";
     update(rowIdx, {
       ...fields[rowIdx],
       kode: item.kode,
       nama: item.nama,
-      warna: item.variantStock?.[0]?.name || item.warna[0] || "",
+      warna: firstColor,
       hargaJual: sanitizeNumber(item.hargaJual),
       qty: 1,
       subtotal: sanitizeNumber(item.hargaJual),
@@ -138,7 +140,7 @@ export default function PenjualanPage() {
     const errors: string[] = [];
     if (!customer) errors.push("Customer wajib diisi.");
     if (!values.items.length) errors.push("Tambahkan minimal 1 item.");
-    if (!isValidDateString(tanggal)) errors.push("Tanggal tidak valid (format YYYY-MM-DD).");
+    if (!isValidDateString(tanggal)) errors.push("Tanggal tidak valid.");
 
     const itemsPayload = values.items.map((it) => {
       const kode = sanitizeString(it.kode);
@@ -146,21 +148,29 @@ export default function PenjualanPage() {
       const warna = sanitizeString(it.warna);
       const qty = sanitizeNumber(it.qty);
       const harga = sanitizeNumber(it.hargaJual);
-      if (!kode || !nama || !warna) {
-        errors.push("Kode, nama, dan warna tiap item wajib diisi.");
+
+      // Check if item has colors - if yes, warna is required
+      const stokItem = stock.find((s) => s.kode === kode);
+      const hasColors = stokItem && (stokItem.variantStock?.length || stokItem.warna.length);
+
+      if (!kode || !nama) {
+        errors.push("Kode dan nama tiap item wajib diisi.");
+      }
+      if (hasColors && !warna) {
+        errors.push(`Warna untuk ${nama || kode} wajib dipilih.`);
       }
       if (!Number.isFinite(qty) || qty <= 0) {
         errors.push("Qty item harus lebih dari 0.");
       }
       if (!Number.isFinite(harga) || harga < 0) {
-        errors.push("Harga jual harus berupa angka dan tidak negatif.");
+        errors.push("Harga jual harus berupa angka.");
       }
       return {
         kode_barang: kode,
         nama_barang: nama,
         qty,
         harga_jual: harga,
-        warna,
+        warna: warna || "-",
         total: qty * harga,
       };
     });
@@ -241,10 +251,10 @@ export default function PenjualanPage() {
     <div className="grid" style={{ gap: 16 }}>
       <ToastContainer toasts={toasts} />
       <div className="card">
-        <div className="flex" style={{ justifyContent: "space-between" }}>
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <div>
             <div className="title">Form Penjualan</div>
-            <div className="muted">Multi-item, auto subtotal, PDF struk</div>
+            <div className="muted small">Multi-item, auto subtotal</div>
           </div>
           <button
             className="btn secondary"
@@ -256,11 +266,14 @@ export default function PenjualanPage() {
             Export CSV
           </button>
         </div>
+
         <div className="divider" />
-        <form className="grid" style={{ gap: 12 }} onSubmit={form.handleSubmit(submit)}>
-          <div className="grid grid-3">
+
+        <form className="grid" style={{ gap: 16 }} onSubmit={form.handleSubmit(submit)}>
+          {/* Header Form */}
+          <div className="grid" style={{ gap: 16, gridTemplateColumns: "1fr 1fr auto", alignItems: "end" }}>
             <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Customer</span>
+              <span className="muted small">Customer</span>
               <input
                 className="input"
                 placeholder="Nama customer"
@@ -268,16 +281,19 @@ export default function PenjualanPage() {
               />
             </label>
             <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Tanggal</span>
+              <span className="muted small">Tanggal</span>
               <input className="input" type="date" {...form.register("tanggal")} />
             </label>
             <div className="grid" style={{ gap: 4 }}>
-              <span className="muted">Grand Total</span>
-              <div className="total-box">{formatIDR(grandTotal)}</div>
+              <span className="muted small">Grand Total</span>
+              <div className="total-box" style={{ fontSize: "1.25rem", fontWeight: 700, color: "#059669" }}>
+                {formatIDR(grandTotal)}
+              </div>
             </div>
           </div>
 
-          <div className="grid" style={{ gap: 8 }}>
+          {/* Items */}
+          <div className="grid" style={{ gap: 12 }}>
             {fields.map((field: typeof fields[number], idx: number) => {
               const kode = form.watch(`items.${idx}.kode`);
               const stok = stock.find((s) => s.kode === kode);
@@ -285,30 +301,25 @@ export default function PenjualanPage() {
                 stok?.variantStock ||
                 stok?.warna.map((w) => ({ name: w, qty: stok?.qty || 0 })) ||
                 [];
-              const stockText = stok ? `Stok: ${stok.qty} unit` : "Stok: -";
-              const stockTone = stok
-                ? stok.qty < 5
-                  ? "red"
-                  : stok.qty <= 10
-                    ? "yellow"
-                    : "green"
-                : "muted";
+              const hasColors = colorOptions.length > 0;
+              const stockQty = stok?.qty ?? 0;
+              const stockTone = stockQty < 5 ? "red" : stockQty <= 10 ? "yellow" : "green";
+
               return (
-                <div key={field.id} className="card" style={{ padding: 12 }}>
-                  <div className="flex" style={{ justifyContent: "space-between" }}>
-                    <div className="muted">Item #{idx + 1}</div>
+                <div key={field.id} className="card" style={{ padding: 16, background: "#f8fafc" }}>
+                  <div className="flex" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+                    <span className="muted small" style={{ fontWeight: 600 }}>Item #{idx + 1}</span>
                     {fields.length > 1 && (
-                      <button className="btn danger" type="button" onClick={() => remove(idx)}>
+                      <button className="btn danger" type="button" style={{ padding: "4px 12px", fontSize: "0.875rem" }} onClick={() => remove(idx)}>
                         Hapus
                       </button>
                     )}
                   </div>
-                  <div
-                    className="grid"
-                    style={{ gap: 10, gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}
-                  >
-                    <div>
-                      <div className="muted">Kode Barang</div>
+
+                  <div className="grid" style={{ gap: 12, gridTemplateColumns: "repeat(6, 1fr)" }}>
+                    {/* Kode Barang */}
+                    <div style={{ gridColumn: "span 1" }}>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Kode Barang</div>
                       <div style={{ position: "relative" }}>
                         <input
                           className="input"
@@ -324,89 +335,103 @@ export default function PenjualanPage() {
                             });
                             setOpenIdx(idx);
                           }}
-                          placeholder="Cari kode atau nama..."
+                          placeholder="Cari..."
+                          style={{ width: "100%" }}
                         />
                         {openIdx === idx && filteredStock(queries[idx] || "").length > 0 && (
-                          <div
-                            className="card"
-                            style={{
-                              position: "absolute",
-                              top: "110%",
-                              left: 0,
-                              right: 0,
-                              zIndex: 10,
-                              maxHeight: 200,
-                              overflowY: "auto",
-                            }}
-                          >
+                          <div className="card" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, maxHeight: 200, overflowY: "auto", marginTop: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
                             {filteredStock(queries[idx] || "").map((item) => (
                               <div
                                 key={item.kode}
-                                className="muted"
-                                style={{ padding: 8, cursor: "pointer" }}
+                                style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #e2e8f0" }}
                                 onMouseDown={(e) => {
                                   e.preventDefault();
                                   selectStock(idx, item);
                                   setOpenIdx(null);
                                 }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
                               >
-                                {item.kode} - {item.nama} (Stok: {item.qty})
+                                <div style={{ fontWeight: 500 }}>{item.kode}</div>
+                                <div className="muted small">{item.nama} (Stok: {item.qty})</div>
                               </div>
                             ))}
                           </div>
                         )}
                       </div>
                     </div>
-                    <label className="grid" style={{ gap: 4 }}>
-                      <span className="muted">Nama Barang</span>
+
+                    {/* Nama Barang */}
+                    <div style={{ gridColumn: "span 2" }}>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Nama Barang</div>
                       <input
                         className="input"
                         readOnly
-                        style={{ background: "#f1f5f9" }}
+                        style={{ background: "#e2e8f0", width: "100%" }}
                         {...form.register(`items.${idx}.nama`)}
                       />
-                    </label>
-                    <label className="grid" style={{ gap: 4 }}>
-                      <span className="muted">Qty</span>
+                    </div>
+
+                    {/* Qty */}
+                    <div>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Qty</div>
                       <input
                         className="input"
                         type="number"
                         min={0}
                         value={form.watch(`items.${idx}.qty`)}
                         onChange={(e) => handleQtyChange(idx, Number(e.target.value))}
+                        style={{ width: "100%" }}
                       />
-                      <small className={`small ${stockTone}`}>{stockText}</small>
-                      {stok && form.watch(`items.${idx}.qty`) > stok.qty && (
-                        <small className="small red">Stok tidak cukup!</small>
+                      {stok && (
+                        <small className={`small ${stockTone}`} style={{ display: "block", marginTop: 2 }}>
+                          Stok: {stockQty}
+                        </small>
                       )}
-                    </label>
-                    <label className="grid" style={{ gap: 4 }}>
-                      <span className="muted">Harga Jual</span>
+                    </div>
+
+                    {/* Harga Jual */}
+                    <div>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Harga Jual</div>
                       <input
                         className="input"
                         type="number"
                         min={0}
                         value={form.watch(`items.${idx}.hargaJual`)}
                         onChange={(e) => handleHargaChange(idx, Number(e.target.value))}
+                        style={{ width: "100%" }}
                       />
-                    </label>
-                    <label className="grid" style={{ gap: 4 }}>
-                      <span className="muted">Warna</span>
-                      <select className="select" {...form.register(`items.${idx}.warna`)}>
-                        <option value="">Pilih warna</option>
-                        {colorOptions.map((w) => (
-                          <option key={w.name} value={w.name} disabled={w.qty === 0}>
-                            {w.name} ({w.qty} unit)
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="grid" style={{ gap: 4 }}>
-                      <span className="muted">Subtotal</span>
-                      <div className="title">
-                        {formatIDR(form.watch(`items.${idx}.subtotal`) || 0)}
-                      </div>
                     </div>
+
+                    {/* Warna */}
+                    <div>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Warna</div>
+                      {hasColors ? (
+                        <select className="select" style={{ width: "100%" }} {...form.register(`items.${idx}.warna`)}>
+                          <option value="">Pilih warna</option>
+                          {colorOptions.map((w) => (
+                            <option key={w.name} value={w.name}>
+                              {w.name} ({w.qty})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="input"
+                          readOnly
+                          value="-"
+                          style={{ background: "#e2e8f0", width: "100%", textAlign: "center" }}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Subtotal */}
+                  <div style={{ textAlign: "right", marginTop: 12 }}>
+                    <span className="muted small">Subtotal: </span>
+                    <span style={{ fontWeight: 700, fontSize: "1.1rem" }}>
+                      {formatIDR(form.watch(`items.${idx}.subtotal`) || 0)}
+                    </span>
                   </div>
                 </div>
               );
@@ -416,6 +441,7 @@ export default function PenjualanPage() {
           <button
             className="btn secondary"
             type="button"
+            style={{ width: "100%", padding: "12px" }}
             onClick={() => {
               append({
                 kode: "",
@@ -431,15 +457,14 @@ export default function PenjualanPage() {
             + Tambah Item
           </button>
 
-          <div className="flex" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <div className="flex" style={{ justifyContent: "flex-end", gap: 8 }}>
             <button
               className="btn"
               type="submit"
               disabled={saving || invalidQty}
-              aria-busy={saving}
-              style={{ opacity: saving || invalidQty ? 0.7 : 1, cursor: saving || invalidQty ? "not-allowed" : "pointer" }}
+              style={{ padding: "12px 24px" }}
             >
-              {saving ? "⏳ Menyimpan..." : "Submit Transaksi"}
+              {saving ? "Menyimpan..." : "Submit Transaksi"}
             </button>
             <button
               className="btn secondary"
@@ -482,7 +507,7 @@ function History({
       <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
         <div className="title">History Penjualan</div>
         <button className="btn secondary" onClick={onRefresh}>
-          {refreshing ? "⟳ Refreshing..." : "⟳ Refresh"}
+          {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       </div>
       <table className="table">
@@ -504,50 +529,21 @@ function History({
               <td>{formatIDR(s.total)}</td>
               <td>
                 <div className="table-actions">
-                  <button className="btn secondary" onClick={() => alert("Detail transaksi belum tersedia.")}>
-                    👁 Lihat
-                  </button>
-                  <button className="btn" onClick={() => onPrint(s)}>
-                    🖨 Print
-                  </button>
-                  <button className="btn danger" onClick={() => onDelete(s.id)}>
-                    🗑 Hapus
-                  </button>
+                  <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
+                  <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
                 </div>
               </td>
             </tr>
           ))}
           {!sales.length && (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", padding: 12 }}>
+              <td colSpan={5} style={{ textAlign: "center", padding: 16 }}>
                 Belum ada transaksi.
               </td>
             </tr>
           )}
         </tbody>
       </table>
-      <div className="table-card">
-        {sales.slice(0, 5).map((s, idx) => (
-          <div key={s.id} className="card">
-            <div className="title">
-              {idx + 1}. {s.customer}
-            </div>
-            <div className="muted small">{formatFriendlyDate(s.timestamp)}</div>
-            <div className="muted small">{formatIDR(s.total)}</div>
-            <div className="table-actions" style={{ marginTop: 8 }}>
-              <button className="btn secondary" onClick={() => alert("Detail transaksi belum tersedia.")}>
-                👁 Lihat
-              </button>
-              <button className="btn" onClick={() => onPrint(s)}>
-                🖨 Print
-              </button>
-              <button className="btn danger" onClick={() => onDelete(s.id)}>
-                🗑 Hapus
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

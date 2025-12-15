@@ -1,6 +1,6 @@
 import imageCompression from "browser-image-compression";
-import { useCallback, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useCallback, useEffect, useState } from "react";
+import { useFieldArray, useForm } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
 import { API_ENDPOINTS, apiCall } from "../config/api";
 import { exportPurchaseCSV } from "../lib/export";
@@ -9,28 +9,36 @@ import type { PurchaseItem, PurchaseTransaction, StockItem } from "../lib/types"
 import { generatePembelianId } from "../utils/generateId";
 import { isValidDateString, sanitizeNumber, sanitizeString } from "../utils/validation";
 
-type PurchaseForm = {
+type PurchaseFormItem = {
   kode: string;
   nama: string;
   qty: number;
   hargaBeli: number;
-  supplier: string;
   warna: string;
+  subtotal: number;
+};
+
+type PurchaseForm = {
+  supplier: string;
   tanggal: string;
-  imageUrl?: string;
-  file?: FileList;
+  items: PurchaseFormItem[];
 };
 
 type Toast = { id: number; message: string; tone: "success" | "error" };
 
-const defaultValues: PurchaseForm = {
+const defaultItem: PurchaseFormItem = {
   kode: "",
   nama: "",
   qty: 1,
   hargaBeli: 0,
-  supplier: "",
   warna: "",
+  subtotal: 0,
+};
+
+const defaultValues: PurchaseForm = {
+  supplier: "",
   tanggal: new Date().toISOString().slice(0, 10),
+  items: [{ ...defaultItem }],
 };
 
 export default function PembelianPage() {
@@ -41,20 +49,33 @@ export default function PembelianPage() {
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<PurchaseTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
-  const [query, setQuery] = useState("");
-  const form = useForm<PurchaseForm>({ defaultValues });
+  const [queries, setQueries] = useState<string[]>([""]);
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
 
-  const filteredStock = useMemo(
-    () =>
-      stock
-        .filter(
-          (s) =>
-            s.kode.toLowerCase().includes(query.toLowerCase()) ||
-            s.nama.toLowerCase().includes(query.toLowerCase()),
-        )
-        .slice(0, 10),
-    [query, stock],
-  );
+  const form = useForm<PurchaseForm>({ defaultValues });
+  const { fields, append, remove, update } = useFieldArray<PurchaseForm, "items">({
+    control: form.control,
+    name: "items",
+  });
+
+  useEffect(() => {
+    setQueries(new Array(fields.length).fill(""));
+  }, [fields.length]);
+
+  const watchedItems = form.watch("items") || [];
+  const grandTotal = watchedItems.reduce((sum: number, it: PurchaseFormItem) => {
+    return sum + sanitizeNumber(it.qty) * sanitizeNumber(it.hargaBeli);
+  }, 0);
+
+  function filteredStock(query: string) {
+    return stock
+      .filter(
+        (s) =>
+          s.kode.toLowerCase().includes(query.toLowerCase()) ||
+          s.nama.toLowerCase().includes(query.toLowerCase()),
+      )
+      .slice(0, 10);
+  }
 
   const onDrop = useCallback(
     async (files: File[]) => {
@@ -66,14 +87,9 @@ export default function PembelianPage() {
         const url = await imageCompression.getDataUrlFromFile(compressed);
         setPreview(url);
         setUploadStatus("done");
-        form.setValue("file", {
-          0: file,
-          length: 1,
-          item: () => file,
-        } as any);
       }, 1000);
     },
-    [form],
+    [],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -83,22 +99,45 @@ export default function PembelianPage() {
     multiple: false,
   });
 
-  const totalBelanja = sanitizeNumber(form.watch("qty")) * sanitizeNumber(form.watch("hargaBeli"));
-
   function pushToast(message: string, tone: "success" | "error") {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, tone }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
   }
 
-  function fillFromStock(kode: string) {
-    const found: StockItem | undefined = stock.find((s) => s.kode === kode);
-    if (found) {
-      form.setValue("kode", found.kode);
-      form.setValue("nama", found.nama);
-      form.setValue("warna", found.warna.join(", "));
-      form.setValue("hargaBeli", found.hargaBeli);
-    }
+  function selectStock(rowIdx: number, item: StockItem | undefined) {
+    if (!item) return;
+    update(rowIdx, {
+      ...fields[rowIdx],
+      kode: item.kode,
+      nama: item.nama,
+      warna: item.warna.join(", "),
+      hargaBeli: sanitizeNumber(item.hargaBeli),
+      qty: 1,
+      subtotal: sanitizeNumber(item.hargaBeli),
+    });
+  }
+
+  function handleQtyChange(idx: number, qty: number) {
+    const current = form.getValues(`items.${idx}`);
+    const safeQty = Math.max(0, sanitizeNumber(qty));
+    const harga = sanitizeNumber(current.hargaBeli);
+    update(idx, {
+      ...current,
+      qty: safeQty,
+      subtotal: safeQty * harga,
+    });
+  }
+
+  function handleHargaChange(idx: number, hargaBeli: number) {
+    const current = form.getValues(`items.${idx}`);
+    const harga = sanitizeNumber(hargaBeli);
+    const qty = sanitizeNumber(current.qty);
+    update(idx, {
+      ...current,
+      hargaBeli: harga,
+      subtotal: qty * harga,
+    });
   }
 
   async function submit(values: PurchaseForm) {
@@ -107,23 +146,43 @@ export default function PembelianPage() {
       pushToast("Konfigurasi webhook pembelian belum diset.", "error");
       return;
     }
+
     const supplier = sanitizeString(values.supplier);
-    const kode = sanitizeString(values.kode);
-    const nama = sanitizeString(values.nama);
-    const warna = sanitizeString(values.warna);
     const tanggal = sanitizeString(values.tanggal);
-    const qty = sanitizeNumber(values.qty);
-    const hargaBeli = sanitizeNumber(values.hargaBeli);
 
     const errors: string[] = [];
     if (!supplier) errors.push("Supplier wajib diisi.");
-    if (!kode || !nama) errors.push("Kode dan nama barang wajib diisi.");
-    if (!isValidDateString(tanggal)) errors.push("Tanggal tidak valid (format YYYY-MM-DD).");
-    if (!Number.isFinite(qty) || qty <= 0) errors.push("Qty harus berupa angka lebih dari 0.");
-    if (!Number.isFinite(hargaBeli) || hargaBeli < 0)
-      errors.push("Harga beli harus berupa angka dan tidak negatif.");
+    if (!values.items.length) errors.push("Tambahkan minimal 1 item.");
+    if (!isValidDateString(tanggal)) errors.push("Tanggal tidak valid.");
 
-    const total = qty * hargaBeli;
+    const itemsPayload = values.items.map((it) => {
+      const kode = sanitizeString(it.kode);
+      const nama = sanitizeString(it.nama);
+      const warna = sanitizeString(it.warna);
+      const qty = sanitizeNumber(it.qty);
+      const hargaBeli = sanitizeNumber(it.hargaBeli);
+
+      if (!kode || !nama) {
+        errors.push("Kode dan nama barang wajib diisi.");
+      }
+      if (!Number.isFinite(qty) || qty <= 0) {
+        errors.push("Qty harus lebih dari 0.");
+      }
+      if (!Number.isFinite(hargaBeli) || hargaBeli < 0) {
+        errors.push("Harga beli harus berupa angka.");
+      }
+
+      return {
+        kode_barang: kode,
+        nama_barang: nama,
+        qty,
+        harga_beli: hargaBeli,
+        warna: warna || "-",
+        total: qty * hargaBeli,
+      };
+    });
+
+    const total = itemsPayload.reduce((sum, it) => sum + it.total, 0);
     if (total <= 0) errors.push("Total tidak boleh 0.");
 
     if (errors.length) {
@@ -133,39 +192,38 @@ export default function PembelianPage() {
 
     setSaving(true);
     try {
-      const item: PurchaseItem = {
-        kode,
-        nama,
-        qty,
-        hargaBeli,
-        supplier,
-        warna,
-        tanggal,
-        imageUrl: preview,
-      };
       const payload = {
         id: generatePembelianId(),
-        kode_barang: kode,
-        nama_barang: nama,
-        qty,
-        harga_beli: hargaBeli,
         supplier,
-        warna,
         tanggal,
-        foto_url: preview || "",
+        items: itemsPayload,
         total,
+        foto_url: preview || "",
         created_at: new Date().toISOString(),
       };
       const response = await apiCall(API_ENDPOINTS.pembelian, payload, { timeoutMs: 30000 });
       if (response && typeof response === "object" && "success" in response && (response as any).success === false) {
         throw new Error((response as any).message || "Gagal menyimpan pembelian!");
       }
+
+      const txItems: PurchaseItem[] = itemsPayload.map((it) => ({
+        kode: it.kode_barang,
+        nama: it.nama_barang,
+        qty: it.qty,
+        hargaBeli: it.harga_beli,
+        warna: it.warna,
+        supplier,
+        tanggal,
+        imageUrl: preview,
+      }));
+
       const tx: PurchaseTransaction = {
         id: payload.id,
-        items: [item],
+        items: txItems,
         total,
         imageUrl: preview,
       };
+
       applyPurchase(tx);
       setHistory((prev) => [tx, ...prev]);
       pushToast((response as any)?.message || "Pembelian berhasil disimpan!", "success");
@@ -193,11 +251,11 @@ export default function PembelianPage() {
   return (
     <div className="grid" style={{ gap: 16 }}>
       <ToastContainer toasts={toasts} />
-      <div className="card" style={{ padding: "2rem" }}>
-        <div className="flex" style={{ justifyContent: "space-between" }}>
+      <div className="card">
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <div>
             <div className="title">Form Pembelian</div>
-            <div className="muted">Update stok & unggah foto struk</div>
+            <div className="muted small">Multi-item, update stok otomatis</div>
           </div>
           <button
             className="btn secondary"
@@ -209,128 +267,223 @@ export default function PembelianPage() {
             Export CSV
           </button>
         </div>
+
         <div className="divider" />
-        <form className="grid" style={{ gap: "1.5rem" }} onSubmit={form.handleSubmit(submit)}>
-          <div className="grid grid-3" style={{ gap: "1rem" }}>
-            <div>
-              <div className="muted">Kode Barang</div>
-              <input
-                className="input"
-                placeholder="Ketik kode atau nama..."
-                value={form.watch("kode")}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  form.setValue("kode", e.target.value);
-                }}
-                list="kode-list"
-                onBlur={(e) => fillFromStock(e.target.value)}
-              />
-              <datalist id="kode-list">
-                {filteredStock.map((s) => (
-                  <option key={s.kode} value={s.kode}>
-                    {s.nama}
-                  </option>
-                ))}
-                <option value="__new">Tambah Barang Baru</option>
-              </datalist>
-            </div>
-            <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Nama Barang</span>
-              <input className="input" {...form.register("nama")} />
-            </label>
-            <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Supplier</span>
-              <input className="input" {...form.register("supplier")} />
-            </label>
-          </div>
 
-          <div className="grid grid-3" style={{ gap: "1rem" }}>
+        <form className="grid" style={{ gap: 16 }} onSubmit={form.handleSubmit(submit)}>
+          {/* Header Form */}
+          <div className="grid" style={{ gap: 16, gridTemplateColumns: "1fr 1fr auto", alignItems: "end" }}>
             <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Qty</span>
-              <input className="input" type="number" min={0} {...form.register("qty", { valueAsNumber: true })} />
-            </label>
-            <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Harga Beli</span>
+              <span className="muted small">Supplier</span>
               <input
                 className="input"
-                type="number"
-                min={0}
-                {...form.register("hargaBeli", { valueAsNumber: true })}
+                placeholder="Nama supplier"
+                {...form.register("supplier")}
               />
             </label>
             <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Warna (multi)</span>
-              <input
-                className="input"
-                placeholder="Contoh: black, silver, gold"
-                {...form.register("warna")}
-              />
-            </label>
-          </div>
-
-          <div className="grid grid-3" style={{ gap: "1rem" }}>
-            <label className="grid" style={{ gap: 4 }}>
-              <span className="muted">Tanggal Pembelian</span>
+              <span className="muted small">Tanggal</span>
               <input className="input" type="date" {...form.register("tanggal")} />
             </label>
             <div className="grid" style={{ gap: 4 }}>
-              <span className="muted">Total</span>
-              <div className="title">{formatIDR(totalBelanja)}</div>
+              <span className="muted small">Grand Total</span>
+              <div className="total-box" style={{ fontSize: "1.25rem", fontWeight: 700, color: "#059669" }}>
+                {formatIDR(grandTotal)}
+              </div>
             </div>
           </div>
 
+          {/* Items */}
+          <div className="grid" style={{ gap: 12 }}>
+            {fields.map((field, idx) => {
+              const kode = form.watch(`items.${idx}.kode`);
+              const existingItem = stock.find((s) => s.kode === kode);
+
+              return (
+                <div key={field.id} className="card" style={{ padding: 16, background: "#f8fafc" }}>
+                  <div className="flex" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+                    <span className="muted small" style={{ fontWeight: 600 }}>Item #{idx + 1}</span>
+                    {fields.length > 1 && (
+                      <button className="btn danger" type="button" style={{ padding: "4px 12px", fontSize: "0.875rem" }} onClick={() => remove(idx)}>
+                        Hapus
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid" style={{ gap: 12, gridTemplateColumns: "repeat(5, 1fr)" }}>
+                    {/* Kode Barang */}
+                    <div>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Kode Barang</div>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          className="input"
+                          value={form.watch(`items.${idx}.kode`)}
+                          onFocus={() => setOpenIdx(idx)}
+                          onBlur={() => setTimeout(() => setOpenIdx(null), 150)}
+                          onChange={(e) => {
+                            form.setValue(`items.${idx}.kode`, e.target.value);
+                            setQueries((prev) => {
+                              const next = [...prev];
+                              next[idx] = e.target.value;
+                              return next;
+                            });
+                            setOpenIdx(idx);
+                          }}
+                          placeholder="Cari atau ketik baru..."
+                          style={{ width: "100%" }}
+                        />
+                        {openIdx === idx && filteredStock(queries[idx] || "").length > 0 && (
+                          <div className="card" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, maxHeight: 200, overflowY: "auto", marginTop: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
+                            {filteredStock(queries[idx] || "").map((item) => (
+                              <div
+                                key={item.kode}
+                                style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #e2e8f0" }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  selectStock(idx, item);
+                                  setOpenIdx(null);
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                              >
+                                <div style={{ fontWeight: 500 }}>{item.kode}</div>
+                                <div className="muted small">{item.nama}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {existingItem && (
+                        <small className="small green" style={{ display: "block", marginTop: 2 }}>
+                          Barang ada di stok
+                        </small>
+                      )}
+                    </div>
+
+                    {/* Nama Barang */}
+                    <div style={{ gridColumn: "span 2" }}>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Nama Barang</div>
+                      <input
+                        className="input"
+                        placeholder="Nama produk"
+                        style={{ width: "100%" }}
+                        {...form.register(`items.${idx}.nama`)}
+                      />
+                    </div>
+
+                    {/* Qty */}
+                    <div>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Qty</div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={form.watch(`items.${idx}.qty`)}
+                        onChange={(e) => handleQtyChange(idx, Number(e.target.value))}
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+
+                    {/* Harga Beli */}
+                    <div>
+                      <div className="muted small" style={{ marginBottom: 4 }}>Harga Beli</div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={form.watch(`items.${idx}.hargaBeli`)}
+                        onChange={(e) => handleHargaChange(idx, Number(e.target.value))}
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Warna */}
+                  <div style={{ marginTop: 12 }}>
+                    <div className="muted small" style={{ marginBottom: 4 }}>Warna (pisah dengan koma)</div>
+                    <input
+                      className="input"
+                      placeholder="Contoh: black, silver, gold"
+                      style={{ width: "100%" }}
+                      {...form.register(`items.${idx}.warna`)}
+                    />
+                  </div>
+
+                  {/* Subtotal */}
+                  <div style={{ textAlign: "right", marginTop: 12 }}>
+                    <span className="muted small">Subtotal: </span>
+                    <span style={{ fontWeight: 700, fontSize: "1.1rem" }}>
+                      {formatIDR(form.watch(`items.${idx}.subtotal`) || 0)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            className="btn secondary"
+            type="button"
+            style={{ width: "100%", padding: "12px" }}
+            onClick={() => {
+              append({ ...defaultItem });
+              setQueries((q) => [...q, ""]);
+            }}
+          >
+            + Tambah Item
+          </button>
+
+          {/* Upload Foto */}
           <div>
-            <div className="muted" style={{ marginBottom: 6 }}>
-              Upload Foto Struk (JPG/PNG, max 2MB)
+            <div className="muted small" style={{ marginBottom: 8 }}>
+              Upload Foto Struk (opsional, JPG/PNG, max 2MB)
             </div>
             <div
               className={`upload ${isDragActive ? "upload-hover" : ""}`}
-              style={{ minHeight: 200, position: "relative" }}
+              style={{ minHeight: 120, position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}
               {...getRootProps()}
             >
               <input {...getInputProps()} />
-              <div style={{ fontSize: "2rem" }}>⬆</div>
-              <div>Drag & drop atau klik untuk upload</div>
-              {uploadStatus === "compressing" && <div className="muted">Compressing...</div>}
-              {uploadStatus === "done" && <div className="muted">Foto berhasil diupload (compressed)</div>}
+              <div style={{ fontSize: "1.5rem" }}>📷</div>
+              <div className="muted small">Drag & drop atau klik untuk upload</div>
+              {uploadStatus === "compressing" && <div className="muted small">Mengkompresi...</div>}
             </div>
             {preview && (
-              <div style={{ marginTop: 10, position: "relative", width: 150 }}>
+              <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12 }}>
                 <div
-                  className="card-thumb"
                   style={{
-                    width: 150,
-                    height: 150,
+                    width: 80,
+                    height: 80,
                     backgroundImage: `url(${preview})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    borderRadius: 8,
+                    border: "1px solid #e2e8f0",
                   }}
                 />
                 <button
                   className="btn danger"
                   type="button"
-                  style={{ position: "absolute", top: 6, right: 6, padding: "6px 8px" }}
+                  style={{ padding: "6px 12px" }}
                   onClick={() => {
                     setPreview(undefined);
                     setUploadStatus("idle");
                   }}
                 >
-                  Hapus
+                  Hapus Foto
                 </button>
-                <div className="muted small" style={{ marginTop: 6 }}>
-                  {form.watch("file")?.[0]?.name || "preview.jpg"}
-                </div>
               </div>
             )}
           </div>
 
-          <div className="flex" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <div className="flex" style={{ justifyContent: "flex-end", gap: 8 }}>
             <button
               className="btn"
               type="submit"
               disabled={saving}
-              aria-busy={saving}
-              style={{ opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}
+              style={{ padding: "12px 24px" }}
             >
-              {saving ? "⏳ Menyimpan..." : "Simpan Pembelian"}
+              {saving ? "Menyimpan..." : "Simpan Pembelian"}
             </button>
           </div>
         </form>
@@ -362,45 +515,43 @@ function History({
       <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
         <div className="title">History Pembelian</div>
         <button className="btn secondary" onClick={onRefresh}>
-          {refreshing ? "⟳ Refreshing..." : "⟳ Refresh"}
+          {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       </div>
-      <div className="gallery">
-        {purchases.map((p) => {
-          const item = p.items[0];
-          const hasImage = Boolean(item.imageUrl);
-          return (
-            <div key={p.id} className="card">
-              <div
-                className="card-thumb"
-                style={{
-                  backgroundImage: `url(${item.imageUrl || "https://via.placeholder.com/300x200?text=Struk"})`,
-                }}
-              />
-              <div className="title" style={{ fontSize: "1rem", marginTop: 8 }}>
-                {item.kode} — {item.nama}
-              </div>
-              <div className="muted small">
-                Qty {item.qty} · {formatIDR(item.hargaBeli)} · Supplier: {item.supplier}
-              </div>
-              <div className="muted small">Tanggal: {formatFriendlyDate(item.tanggal)}</div>
-              <div className="muted small">Warna: {item.warna}</div>
-              <div className="table-actions" style={{ marginTop: 8 }}>
-                <button className="btn secondary" onClick={() => alert("Detail pembelian belum tersedia.")}>
-                  👁 Lihat
-                </button>
-                <button className="btn" onClick={() => alert("Fitur cetak akan tersedia kemudian.")}>
-                  🖨 Print
-                </button>
-                <button className="btn danger" onClick={() => onDelete(p.id)}>
-                  🗑 Hapus
-                </button>
-              </div>
-            </div>
-          );
-        })}
-        {!purchases.length && <div className="muted">Belum ada pembelian.</div>}
-      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Items</th>
+            <th>Supplier</th>
+            <th>Total</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {purchases.slice(0, 5).map((p, idx) => (
+            <tr key={p.id}>
+              <td>{idx + 1}</td>
+              <td>
+                {p.items.map((it) => it.nama).join(", ").slice(0, 40)}
+                {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
+              </td>
+              <td>{p.items[0]?.supplier || "-"}</td>
+              <td>{formatIDR(p.total)}</td>
+              <td>
+                <button className="btn danger" onClick={() => onDelete(p.id)}>Hapus</button>
+              </td>
+            </tr>
+          ))}
+          {!purchases.length && (
+            <tr>
+              <td colSpan={5} style={{ textAlign: "center", padding: 16 }}>
+                Belum ada pembelian.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -415,16 +566,4 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
       ))}
     </div>
   );
-}
-
-function formatFriendlyDate(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString("id-ID", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
