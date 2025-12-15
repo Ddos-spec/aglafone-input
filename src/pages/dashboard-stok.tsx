@@ -288,87 +288,73 @@ export default function DashboardPage() {
   return (
     <div className="grid" style={{ gap: 16 }}>
       <ToastContainer toasts={toasts} />
-      <div className="grid grid-3">
-        <SummaryCard title="Total Items" value={items.length} />
-        <SummaryCard title="Total Stock Value" value={formatIDR(totalValue)} />
-        <SummaryCard
-          title="Low Stock Alert"
-          value={lowCount}
-          tone="alert"
-          action={() => setFilter("low")}
-        />
+
+      {/* Summary Cards - Compact */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <div className="card" style={{ padding: "12px 16px" }}>
+          <div className="muted small">Total Items</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{items.length}</div>
+        </div>
+        <div className="card" style={{ padding: "12px 16px" }}>
+          <div className="muted small">Nilai Stok</div>
+          <div style={{ fontSize: "1.25rem", fontWeight: 700 }}>{formatIDR(totalValue)}</div>
+        </div>
+        <div className="card" style={{ padding: "12px 16px", background: lowCount > 0 ? "#fef3c7" : undefined, cursor: "pointer" }} onClick={() => setFilter("low")}>
+          <div className="muted small">Stok Rendah</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#b45309" }}>{lowCount}</div>
+        </div>
       </div>
 
       <div className="card">
-        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div className="flex" style={{ flex: 1, minWidth: 300 }}>
-            <div className="search-box">
-              <span className="search-icon">🔍</span>
-              <input
-                className="input"
-                placeholder="Ketik kode atau nama barang..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <button className="btn secondary" type="button" onClick={handleRefresh}>
-              {refreshing ? "Merefresh..." : "⟳ Refresh"}
+        {/* Toolbar */}
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+          <div className="flex" style={{ gap: 8, flex: 1, minWidth: 200 }}>
+            <input
+              className="input"
+              placeholder="Cari kode atau nama..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ maxWidth: 300 }}
+            />
+            <button className="btn secondary" type="button" onClick={handleRefresh} style={{ whiteSpace: "nowrap" }}>
+              {refreshing ? "Loading..." : "Refresh"}
             </button>
           </div>
-          <div className="flex">
+          <div className="flex" style={{ gap: 8 }}>
             {selected.size > 0 && (
               <button className="btn danger" onClick={deleteSelected}>
-                Delete Selected ({selected.size})
+                Hapus ({selected.size})
               </button>
             )}
             <button className="btn secondary" onClick={() => setAdding(true)}>
-              + Tambah Produk
+              + Tambah
             </button>
-            <button
-              className="btn"
-              onClick={() => {
-                alert("Export akan tersedia setelah integrasi backend");
-                exportStockCSV(items);
-              }}
-            >
-              Export CSV
+            <button className="btn" onClick={() => exportStockCSV(items)}>
+              Export
             </button>
           </div>
         </div>
 
-        <div className="flex" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-          <select
-            className="select"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as any)}
-          >
+        {/* Filters */}
+        <div className="flex" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <select className="select" value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ minWidth: 140 }}>
             <option value="all">Semua Stok</option>
-            <option value="zero">Stok Habis (0)</option>
-            <option value="low">Stok Rendah (&lt;5)</option>
-            <option value="mid">Stok Sedang (5-10)</option>
-            <option value="ok">Stok Aman (&gt;10)</option>
+            <option value="zero">Stok Habis</option>
+            <option value="low">Stok Rendah</option>
+            <option value="mid">Stok Sedang</option>
+            <option value="ok">Stok Aman</option>
           </select>
-          <select
-            className="select"
-            value={colorFilter}
-            onChange={(e) => setColorFilter(e.target.value)}
-          >
-            <option value="">Semua Warna</option>
-            {uniqueColors.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <select
-            className="select"
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-          >
+          {uniqueColors.length > 0 && (
+            <select className="select" value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} style={{ minWidth: 120 }}>
+              <option value="">Semua Warna</option>
+              {uniqueColors.slice(0, 20).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+          <select className="select" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
             {[10, 25, 50, 100].map((n) => (
-              <option key={n} value={n}>
-                Tampilkan {n}
-              </option>
+              <option key={n} value={n}>{n} / halaman</option>
             ))}
           </select>
         </div>
