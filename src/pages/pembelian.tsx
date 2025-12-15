@@ -31,48 +31,13 @@ const defaultValues: PurchaseForm = {
   tanggal: new Date().toISOString().slice(0, 10),
 };
 
-const mockHistory: PurchaseTransaction[] = [
-  {
-    id: "PUR-001",
-    total: 1500000,
-    imageUrl: "",
-    items: [
-      {
-        kode: "SKU-010",
-        nama: "Powerbank X",
-        qty: 10,
-        hargaBeli: 150000,
-        supplier: "PT Sumber",
-        warna: "Hitam",
-        tanggal: "2025-12-15",
-      },
-    ],
-  },
-  {
-    id: "PUR-002",
-    total: 900000,
-    imageUrl: "",
-    items: [
-      {
-        kode: "SKU-002",
-        nama: "Charger C",
-        qty: 12,
-        hargaBeli: 75000,
-        supplier: "CV Listrik",
-        warna: "Hitam",
-        tanggal: "2025-12-14",
-      },
-    ],
-  },
-];
-
 export default function PembelianPage() {
   const { items: stock, applyPurchase } = useStockStore();
   const [preview, setPreview] = useState<string | undefined>();
   const [uploadStatus, setUploadStatus] = useState<"idle" | "compressing" | "done">("idle");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [saving, setSaving] = useState(false);
-  const [history, setHistory] = useState<PurchaseTransaction[]>(mockHistory);
+  const [history, setHistory] = useState<PurchaseTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const form = useForm<PurchaseForm>({ defaultValues });
@@ -206,7 +171,7 @@ export default function PembelianPage() {
         <div className="flex" style={{ justifyContent: "space-between" }}>
           <div>
             <div className="title">Form Pembelian</div>
-            <div className="muted">Update stok & unggah foto struk (mock)</div>
+            <div className="muted">Update stok & unggah foto struk</div>
           </div>
           <button
             className="btn secondary"
@@ -389,10 +354,10 @@ function History({
               <div className="muted small">Tanggal: {formatFriendlyDate(item.tanggal)}</div>
               <div className="muted small">Warna: {item.warna}</div>
               <div className="table-actions" style={{ marginTop: 8 }}>
-                <button className="btn secondary" onClick={() => alert("Detail pembelian (mock)")}>
+                <button className="btn secondary" onClick={() => alert("Detail pembelian belum tersedia.")}>
                   👁 Lihat
                 </button>
-                <button className="btn" onClick={() => alert("Print mock")}>
+                <button className="btn" onClick={() => alert("Fitur cetak akan tersedia kemudian.")}>
                   🖨 Print
                 </button>
                 <button className="btn danger" onClick={() => onDelete(p.id)}>

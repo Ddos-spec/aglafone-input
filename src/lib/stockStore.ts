@@ -19,48 +19,8 @@ type StockState = {
   applyPurchase: (tx: PurchaseTransaction) => void;
 };
 
-const seed: StockItem[] = [
-  {
-    id: "1",
-    kode: "SKU-001",
-    nama: "Headset A",
-    qty: 12,
-    hargaBeli: 120000,
-    hargaJual: 175000,
-    warna: ["Hitam", "Putih"],
-    variantStock: [
-      { name: "Hitam", qty: 6 },
-      { name: "Putih", qty: 6 },
-    ],
-  },
-  {
-    id: "2",
-    kode: "SKU-002",
-    nama: "Charger C",
-    qty: 4,
-    hargaBeli: 45000,
-    hargaJual: 75000,
-    warna: ["Hitam"],
-    variantStock: [{ name: "Hitam", qty: 4 }],
-  },
-  {
-    id: "3",
-    kode: "SKU-003",
-    nama: "Cable Fast",
-    qty: 8,
-    hargaBeli: 25000,
-    hargaJual: 40000,
-    warna: ["Hitam", "Merah", "Biru"],
-    variantStock: [
-      { name: "Hitam", qty: 2 },
-      { name: "Merah", qty: 3 },
-      { name: "Biru", qty: 3 },
-    ],
-  },
-];
-
 export const useStockStore = create<StockState>((set, get) => ({
-  items: seed,
+  items: [],
   sales: [],
   purchases: [],
   search: "",

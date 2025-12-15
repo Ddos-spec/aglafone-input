@@ -37,27 +37,6 @@ const defaultValues: SaleForm = {
   ],
 };
 
-const mockHistory: SaleTransaction[] = [
-  {
-    id: "SALES-001",
-    customer: "Andi",
-    timestamp: "2025-12-15T14:30:00.000Z",
-    total: 2100000,
-    items: [
-      { kode: "SKU-001", nama: "Headset A", warna: "Hitam", qty: 3, hargaJual: 175000, subtotal: 525000 },
-      { kode: "SKU-002", nama: "Charger C", warna: "Hitam", qty: 5, hargaJual: 75000, subtotal: 375000 },
-      { kode: "SKU-003", nama: "Cable Fast", warna: "Merah", qty: 20, hargaJual: 40000, subtotal: 800000 },
-    ],
-  },
-  {
-    id: "SALES-002",
-    customer: "Budi",
-    timestamp: "2025-12-15T10:00:00.000Z",
-    total: 750000,
-    items: [{ kode: "SKU-001", nama: "Headset A", warna: "Putih", qty: 3, hargaJual: 250000, subtotal: 750000 }],
-  },
-];
-
 export default function PenjualanPage() {
   const { items: stock, applySale } = useStockStore();
   const form = useForm<SaleForm>({ defaultValues });
@@ -70,7 +49,7 @@ export default function PenjualanPage() {
   const [saving, setSaving] = useState(false);
   const [lastTx, setLastTx] = useState<SaleTransaction | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [history, setHistory] = useState<SaleTransaction[]>(mockHistory);
+  const [history, setHistory] = useState<SaleTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
 
   useEffect(() => {
@@ -154,7 +133,7 @@ export default function PenjualanPage() {
     }
     const invalid = values.items.find((it) => {
       const stok = stock.find((s) => s.kode === it.kode);
-      return !stok || it.qty > stok.qty;
+      return stok && it.qty > stok.qty;
     });
     if (invalid) {
       pushToast("Gagal menyimpan transaksi! Stok tidak cukup.", "error");
@@ -472,7 +451,7 @@ function History({
               <td>{formatIDR(s.total)}</td>
               <td>
                 <div className="table-actions">
-                  <button className="btn secondary" onClick={() => alert("Detail mock transaksi")}>
+                  <button className="btn secondary" onClick={() => alert("Detail transaksi belum tersedia.")}>
                     👁 Lihat
                   </button>
                   <button className="btn" onClick={() => onPrint(s)}>
@@ -503,7 +482,7 @@ function History({
             <div className="muted small">{formatFriendlyDate(s.timestamp)}</div>
             <div className="muted small">{formatIDR(s.total)}</div>
             <div className="table-actions" style={{ marginTop: 8 }}>
-              <button className="btn secondary" onClick={() => alert("Detail mock transaksi")}>
+              <button className="btn secondary" onClick={() => alert("Detail transaksi belum tersedia.")}>
                 👁 Lihat
               </button>
               <button className="btn" onClick={() => onPrint(s)}>
