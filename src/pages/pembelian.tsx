@@ -7,6 +7,7 @@ import { exportPurchaseCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { PurchaseItem, PurchaseTransaction, StockItem } from "../lib/types";
 import { generatePembelianId } from "../utils/generateId";
+import { isValidDateString, sanitizeNumber, sanitizeString } from "../utils/validation";
 
 type PurchaseForm = {
   kode: string;
@@ -82,7 +83,7 @@ export default function PembelianPage() {
     multiple: false,
   });
 
-  const totalBelanja = (form.watch("qty") || 0) * (form.watch("hargaBeli") || 0);
+  const totalBelanja = sanitizeNumber(form.watch("qty")) * sanitizeNumber(form.watch("hargaBeli"));
 
   function pushToast(message: string, tone: "success" | "error") {
     const id = Date.now();
@@ -101,64 +102,62 @@ export default function PembelianPage() {
   }
 
   async function submit(values: PurchaseForm) {
+    if (saving) return;
     if (!API_ENDPOINTS.pembelian) {
       pushToast("Konfigurasi webhook pembelian belum diset.", "error");
       return;
     }
-    if (!values.supplier) {
-      pushToast("Supplier wajib diisi.", "error");
+    const supplier = sanitizeString(values.supplier);
+    const kode = sanitizeString(values.kode);
+    const nama = sanitizeString(values.nama);
+    const warna = sanitizeString(values.warna);
+    const tanggal = sanitizeString(values.tanggal);
+    const qty = sanitizeNumber(values.qty);
+    const hargaBeli = sanitizeNumber(values.hargaBeli);
+
+    const errors: string[] = [];
+    if (!supplier) errors.push("Supplier wajib diisi.");
+    if (!kode || !nama) errors.push("Kode dan nama barang wajib diisi.");
+    if (!isValidDateString(tanggal)) errors.push("Tanggal tidak valid (format YYYY-MM-DD).");
+    if (!Number.isFinite(qty) || qty <= 0) errors.push("Qty harus berupa angka lebih dari 0.");
+    if (!Number.isFinite(hargaBeli) || hargaBeli < 0)
+      errors.push("Harga beli harus berupa angka dan tidak negatif.");
+
+    const total = qty * hargaBeli;
+    if (total <= 0) errors.push("Total tidak boleh 0.");
+
+    if (errors.length) {
+      pushToast(Array.from(new Set(errors)).join(" "), "error");
       return;
     }
-    if (!values.kode || !values.nama) {
-      pushToast("Kode dan nama barang wajib diisi.", "error");
-      return;
-    }
-    const tanggal = values.tanggal;
-    const parsedDate = new Date(tanggal);
-    if (!tanggal || Number.isNaN(parsedDate.getTime())) {
-      pushToast("Tanggal tidak valid.", "error");
-      return;
-    }
-    if (!Number.isFinite(values.qty) || values.qty <= 0) {
-      pushToast("Qty harus berupa angka lebih dari 0.", "error");
-      return;
-    }
-    if (!Number.isFinite(values.hargaBeli) || values.hargaBeli < 0) {
-      pushToast("Harga beli harus berupa angka.", "error");
-      return;
-    }
-    const total = (Number(values.qty) || 0) * (Number(values.hargaBeli) || 0);
-    if (total <= 0) {
-      pushToast("Total tidak boleh 0.", "error");
-      return;
-    }
+
     setSaving(true);
     try {
       const item: PurchaseItem = {
-        kode: values.kode,
-        nama: values.nama,
-        qty: values.qty,
-        hargaBeli: values.hargaBeli,
-        supplier: values.supplier,
-        warna: values.warna,
-        tanggal: values.tanggal,
+        kode,
+        nama,
+        qty,
+        hargaBeli,
+        supplier,
+        warna,
+        tanggal,
         imageUrl: preview,
       };
       const payload = {
         id: generatePembelianId(),
-        kode_barang: values.kode,
-        nama_barang: values.nama,
-        qty: values.qty,
-        harga_beli: values.hargaBeli,
-        supplier: values.supplier,
-        warna: values.warna,
-        tanggal: values.tanggal,
+        kode_barang: kode,
+        nama_barang: nama,
+        qty,
+        harga_beli: hargaBeli,
+        supplier,
+        warna,
+        tanggal,
         foto_url: preview || "",
         total,
         created_at: new Date().toISOString(),
       };
-      const response = await apiCall(API_ENDPOINTS.pembelian, payload);
-      if (response && typeof response === "object" && "success" in response && response.success === false) {
+      const response = await apiCall(API_ENDPOINTS.pembelian, payload, { timeoutMs: 30000 });
+      if (response && typeof response === "object" && "success" in response && (response as any).success === false) {
         throw new Error((response as any).message || "Gagal menyimpan pembelian!");
       }
       const tx: PurchaseTransaction = {
@@ -177,6 +176,9 @@ export default function PembelianPage() {
       setPreview(undefined);
       setUploadStatus("idle");
     } catch (error: any) {
+      if (import.meta.env.DEV) {
+        console.error("Submit Pembelian Error:", error);
+      }
       pushToast(error?.message || "Gagal menyimpan pembelian!", "error");
     } finally {
       setSaving(false);
@@ -321,8 +323,14 @@ export default function PembelianPage() {
           </div>
 
           <div className="flex" style={{ justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn" type="submit" disabled={saving}>
-              {saving ? "Menyimpan..." : "Simpan Pembelian"}
+            <button
+              className="btn"
+              type="submit"
+              disabled={saving}
+              aria-busy={saving}
+              style={{ opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}
+            >
+              {saving ? "⏳ Menyimpan..." : "Simpan Pembelian"}
             </button>
           </div>
         </form>

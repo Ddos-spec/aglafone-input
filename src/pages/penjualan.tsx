@@ -7,6 +7,7 @@ import { exportSalesCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { SaleItem, SaleTransaction, StockItem } from "../lib/types";
 import { generatePenjualanId } from "../utils/generateId";
+import { isValidDateString, sanitizeNumber, sanitizeString } from "../utils/validation";
 
 type SaleForm = {
   customer: string;
@@ -58,14 +59,16 @@ export default function PenjualanPage() {
   }, [fields.length]);
 
   const watchedItems = (form.watch("items") as SaleForm["items"]) || [];
-  const grandTotal = watchedItems.reduce(
-    (sum: number, it: SaleForm["items"][number]) => sum + (it.subtotal || 0),
-    0,
-  );
+  const grandTotal = watchedItems.reduce((sum: number, it: SaleForm["items"][number]) => {
+    const qty = sanitizeNumber(it.qty);
+    const harga = sanitizeNumber(it.hargaJual);
+    return sum + qty * harga;
+  }, 0);
 
   const invalidQty = watchedItems.some((it: SaleForm["items"][number]) => {
     const stok = stock.find((s) => s.kode === it.kode);
-    return stok && it.qty > stok.qty;
+    const qty = sanitizeNumber(it.qty);
+    return stok && qty > stok.qty;
   });
 
   function pushToast(message: string, tone: "success" | "error") {
@@ -93,88 +96,88 @@ export default function PenjualanPage() {
       kode: item.kode,
       nama: item.nama,
       warna: item.variantStock?.[0]?.name || item.warna[0] || "",
-      hargaJual: item.hargaJual,
+      hargaJual: sanitizeNumber(item.hargaJual),
       qty: 1,
-      subtotal: item.hargaJual,
+      subtotal: sanitizeNumber(item.hargaJual),
     });
   }
 
   function handleQtyChange(idx: number, qty: number) {
     const current = form.getValues(`items.${idx}`);
     const stok = stock.find((s) => s.kode === current.kode);
-    const safeQty = Math.max(0, Math.min(qty, stok?.qty ?? qty));
+    const safeQty = Math.max(0, Math.min(sanitizeNumber(qty), stok?.qty ?? sanitizeNumber(qty)));
+    const harga = sanitizeNumber(current.hargaJual);
     update(idx, {
       ...current,
       qty: safeQty,
-      subtotal: safeQty * (current.hargaJual || 0),
+      subtotal: safeQty * harga,
     });
   }
 
   function handleHargaChange(idx: number, hargaJual: number) {
     const current = form.getValues(`items.${idx}`);
+    const harga = sanitizeNumber(hargaJual);
+    const qty = sanitizeNumber(current.qty);
     update(idx, {
       ...current,
-      hargaJual,
-      subtotal: (current.qty || 0) * hargaJual,
+      hargaJual: harga,
+      subtotal: qty * harga,
     });
   }
 
   async function submit(values: SaleForm) {
+    if (saving) return;
+    const customer = sanitizeString(values.customer);
+    const tanggal = sanitizeString(values.tanggal);
+
     if (!API_ENDPOINTS.penjualan) {
       pushToast("Konfigurasi webhook penjualan belum diset.", "error");
       return;
     }
-    if (!values.customer) {
-      pushToast("Customer wajib diisi.", "error");
-      return;
-    }
-    if (!values.items.length) {
-      pushToast("Tambahkan minimal 1 item.", "error");
-      return;
-    }
-    const tanggal = values.tanggal;
-    const parsedDate = new Date(tanggal);
-    if (!tanggal || Number.isNaN(parsedDate.getTime())) {
-      pushToast("Tanggal tidak valid.", "error");
-      return;
-    }
-    const invalidItem = values.items.find(
-      (it) =>
-        !it.kode ||
-        !it.nama ||
-        !it.warna ||
-        !Number.isFinite(it.qty) ||
-        !Number.isFinite(it.hargaJual) ||
-        it.qty <= 0 ||
-        it.hargaJual < 0,
-    );
-    if (invalidItem) {
-      pushToast("Lengkapi data item dan pastikan angka valid.", "error");
-      return;
-    }
-    const invalidStock = values.items.find((it) => {
-      const stok = stock.find((s) => s.kode === it.kode);
-      return stok && it.qty > stok.qty;
-    });
-    if (invalidStock) {
-      pushToast("Gagal menyimpan transaksi! Stok tidak cukup.", "error");
-      return;
-    }
+
+    const errors: string[] = [];
+    if (!customer) errors.push("Customer wajib diisi.");
+    if (!values.items.length) errors.push("Tambahkan minimal 1 item.");
+    if (!isValidDateString(tanggal)) errors.push("Tanggal tidak valid (format YYYY-MM-DD).");
 
     const itemsPayload = values.items.map((it) => {
-      const itemTotal = (Number(it.qty) || 0) * (Number(it.hargaJual) || 0);
+      const kode = sanitizeString(it.kode);
+      const nama = sanitizeString(it.nama);
+      const warna = sanitizeString(it.warna);
+      const qty = sanitizeNumber(it.qty);
+      const harga = sanitizeNumber(it.hargaJual);
+      if (!kode || !nama || !warna) {
+        errors.push("Kode, nama, dan warna tiap item wajib diisi.");
+      }
+      if (!Number.isFinite(qty) || qty <= 0) {
+        errors.push("Qty item harus lebih dari 0.");
+      }
+      if (!Number.isFinite(harga) || harga < 0) {
+        errors.push("Harga jual harus berupa angka dan tidak negatif.");
+      }
       return {
-        kode_barang: it.kode,
-        nama_barang: it.nama,
-        qty: it.qty,
-        harga_jual: it.hargaJual,
-        warna: it.warna,
-        total: itemTotal,
+        kode_barang: kode,
+        nama_barang: nama,
+        qty,
+        harga_jual: harga,
+        warna,
+        total: qty * harga,
       };
     });
+
+    const invalidStock = values.items.find((it) => {
+      const stok = stock.find((s) => s.kode === it.kode);
+      return stok && sanitizeNumber(it.qty) > stok.qty;
+    });
+    if (invalidStock) {
+      errors.push("Stok tidak cukup untuk salah satu item.");
+    }
+
     const total = itemsPayload.reduce((sum, it) => sum + it.total, 0);
-    if (total <= 0) {
-      pushToast("Total tidak boleh 0.", "error");
+    if (total <= 0) errors.push("Total tidak boleh 0.");
+
+    if (errors.length) {
+      pushToast(Array.from(new Set(errors)).join(" "), "error");
       return;
     }
 
@@ -182,23 +185,27 @@ export default function PenjualanPage() {
     try {
       const payload = {
         id: generatePenjualanId(),
-        customer: values.customer,
+        customer,
         tanggal,
         items: itemsPayload,
         total,
         created_at: new Date().toISOString(),
       };
-      const response = await apiCall(API_ENDPOINTS.penjualan, payload);
-      if (response && typeof response === "object" && "success" in response && response.success === false) {
+      const response = await apiCall(API_ENDPOINTS.penjualan, payload, { timeoutMs: 30000 });
+      if (response && typeof response === "object" && "success" in response && (response as any).success === false) {
         throw new Error((response as any).message || "Gagal menyimpan transaksi!");
       }
-      const txItems: SaleItem[] = values.items.map((it) => ({
-        ...it,
-        subtotal: it.qty * it.hargaJual,
+      const txItems: SaleItem[] = itemsPayload.map((it) => ({
+        kode: it.kode_barang,
+        nama: it.nama_barang,
+        warna: it.warna,
+        qty: it.qty,
+        hargaJual: it.harga_jual,
+        subtotal: it.total,
       }));
       const tx: SaleTransaction = {
         id: payload.id,
-        customer: values.customer || "Umum",
+        customer: customer || "Umum",
         timestamp: new Date(tanggal).toISOString(),
         items: txItems,
         total,
@@ -212,6 +219,9 @@ export default function PenjualanPage() {
         tanggal: new Date().toISOString().slice(0, 10),
       });
     } catch (error: any) {
+      if (import.meta.env.DEV) {
+        console.error("Submit Penjualan Error:", error);
+      }
       pushToast(error?.message || "Gagal menyimpan transaksi!", "error");
     } finally {
       setSaving(false);
@@ -426,9 +436,10 @@ export default function PenjualanPage() {
               className="btn"
               type="submit"
               disabled={saving || invalidQty}
-              style={{ opacity: saving || invalidQty ? 0.7 : 1 }}
+              aria-busy={saving}
+              style={{ opacity: saving || invalidQty ? 0.7 : 1, cursor: saving || invalidQty ? "not-allowed" : "pointer" }}
             >
-              {saving ? "Menyimpan..." : "Submit Transaksi"}
+              {saving ? "⏳ Menyimpan..." : "Submit Transaksi"}
             </button>
             <button
               className="btn secondary"
