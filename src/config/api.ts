@@ -2,6 +2,8 @@
 const WEBHOOK_PENJUALAN = import.meta.env.VITE_N8N_WEBHOOK_PENJUALAN;
 const WEBHOOK_PEMBELIAN = import.meta.env.VITE_N8N_WEBHOOK_PEMBELIAN;
 const WEBHOOK_STOK = import.meta.env.VITE_N8N_WEBHOOK_STOK;
+const WEBHOOK_RIWAYAT_PENJUALAN = import.meta.env.VITE_N8N_WEBHOOK_RIWAYAT_PENJUALAN;
+const WEBHOOK_RIWAYAT_PEMBELIAN = import.meta.env.VITE_N8N_WEBHOOK_RIWAYAT_PEMBELIAN;
 
 const warnMissingEnv = (name: string, value: string | undefined) => {
   if (!value && import.meta.env.DEV) {
@@ -12,12 +14,16 @@ const warnMissingEnv = (name: string, value: string | undefined) => {
 warnMissingEnv("VITE_N8N_WEBHOOK_PENJUALAN", WEBHOOK_PENJUALAN);
 warnMissingEnv("VITE_N8N_WEBHOOK_PEMBELIAN", WEBHOOK_PEMBELIAN);
 warnMissingEnv("VITE_N8N_WEBHOOK_STOK", WEBHOOK_STOK);
+warnMissingEnv("VITE_N8N_WEBHOOK_RIWAYAT_PENJUALAN", WEBHOOK_RIWAYAT_PENJUALAN);
+warnMissingEnv("VITE_N8N_WEBHOOK_RIWAYAT_PEMBELIAN", WEBHOOK_RIWAYAT_PEMBELIAN);
 
 // Export endpoints
 export const API_ENDPOINTS = {
   penjualan: WEBHOOK_PENJUALAN,
   pembelian: WEBHOOK_PEMBELIAN,
   stok: WEBHOOK_STOK,
+  riwayatPenjualan: WEBHOOK_RIWAYAT_PENJUALAN,
+  riwayatPembelian: WEBHOOK_RIWAYAT_PEMBELIAN,
 } as const;
 
 type ApiCallOptions = {
