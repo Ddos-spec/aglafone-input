@@ -1,8 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { API_ENDPOINTS, apiCall } from "../config/api";
 import { exportStockCSV } from "../lib/export";
 import { formatIDR, stockBadge, useStockStore } from "../lib/stockStore";
 import type { StockItem } from "../lib/types";
+
+type Toast = { id: number; message: string; tone: "success" | "error" };
+
+type ApiStockItem = {
+  kode_barang: string;
+  nama_barang: string;
+  stok_awal: number;
+  stok_masuk: number;
+  stok_keluar: number;
+  stok_akhir: number;
+  harga_beli: number;
+  harga_jual: number;
+  warna: string;
+  row_number?: number;
+};
 
 type SortKey = "kode" | "nama" | "qty" | "hargaBeli" | "hargaJual";
 
@@ -21,6 +37,7 @@ export default function DashboardPage() {
     search,
     filter,
     colorFilter,
+    setItems,
     setSearch,
     setFilter,
     setColorFilter,
@@ -31,6 +48,8 @@ export default function DashboardPage() {
   } = useStockStore();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "kode",
     dir: "asc",
@@ -63,9 +82,61 @@ export default function DashboardPage() {
     },
   });
 
+  function pushToast(message: string, tone: "success" | "error") {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, tone }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
+  }
+
+  async function fetchStokData(isRefresh = false) {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setFetchError(null);
+
+      console.log("[Dashboard Stok] Fetching data from:", API_ENDPOINTS.stok);
+      console.log("[Dashboard Stok] Payload:", { action: "read" });
+
+      const response = await apiCall<ApiStockItem[]>(API_ENDPOINTS.stok, { action: "read" });
+
+      console.log("[Dashboard Stok] Response:", response);
+
+      // Map API response to StockItem format
+      const mappedItems: StockItem[] = (response || []).map((item, idx) => ({
+        id: `stok-${item.kode_barang}-${idx}`,
+        kode: item.kode_barang,
+        nama: item.nama_barang,
+        qty: item.stok_akhir,
+        hargaBeli: item.harga_beli,
+        hargaJual: item.harga_jual,
+        warna: item.warna ? item.warna.split(",").map((w) => w.trim()).filter(Boolean) : [],
+        variantStock: item.warna
+          ? item.warna.split(",").map((w) => w.trim()).filter(Boolean).map((w) => ({ name: w, qty: item.stok_akhir }))
+          : [],
+      }));
+
+      setItems(mappedItems);
+      console.log("[Dashboard Stok] Mapped items:", mappedItems.length);
+
+      if (isRefresh) {
+        pushToast("Data stok berhasil diperbarui", "success");
+      }
+    } catch (error: any) {
+      console.error("[Dashboard Stok] Fetch error:", error);
+      const errorMsg = error?.message || "Gagal memuat data stok";
+      setFetchError(errorMsg);
+      pushToast(errorMsg, "error");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(t);
+    fetchStokData();
   }, []);
 
   const uniqueColors = useMemo(() => {
@@ -108,7 +179,7 @@ export default function DashboardPage() {
   }, [colorFilter, filter, items, search, sort.dir, sort.key]);
 
   const totalValue = items.reduce((sum, it) => sum + it.qty * it.hargaBeli, 0);
-  const lowCount = items.filter((it) => it.qty < 5).length;
+  const lowCount = items.filter((it) => it.qty < 10).length;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -155,8 +226,7 @@ export default function DashboardPage() {
   }
 
   function handleRefresh() {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
+    fetchStokData(true);
   }
 
   function openEdit(item: StockItem) {
@@ -217,6 +287,7 @@ export default function DashboardPage() {
 
   return (
     <div className="grid" style={{ gap: 16 }}>
+      <ToastContainer toasts={toasts} />
       <div className="grid grid-3">
         <SummaryCard title="Total Items" value={items.length} />
         <SummaryCard title="Total Stock Value" value={formatIDR(totalValue)} />
@@ -365,10 +436,19 @@ export default function DashboardPage() {
               {!isLoading && !paged.length && (
                 <tr>
                   <td colSpan={8} style={{ textAlign: "center", padding: 16 }}>
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <div style={{ fontSize: "2rem" }}>🔍</div>
-                      <div>Tidak ada data ditemukan</div>
-                    </div>
+                    {fetchError ? (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ color: "#dc2626" }}>{fetchError}</div>
+                        <button className="btn secondary" onClick={() => fetchStokData()}>
+                          Coba Lagi
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <div style={{ fontSize: "2rem" }}>📦</div>
+                        <div>Belum ada data stok</div>
+                      </div>
+                    )}
                   </td>
                 </tr>
               )}
@@ -401,7 +481,20 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ))}
-          {!isLoading && !paged.length && <div className="muted">Tidak ada data ditemukan</div>}
+          {!isLoading && !paged.length && (
+            fetchError ? (
+              <div style={{ display: "grid", gap: 8, textAlign: "center", padding: 16 }}>
+                <div style={{ color: "#dc2626" }}>{fetchError}</div>
+                <button className="btn secondary" onClick={() => fetchStokData()}>
+                  Coba Lagi
+                </button>
+              </div>
+            ) : (
+              <div className="muted" style={{ textAlign: "center", padding: 16 }}>
+                📦 Belum ada data stok
+              </div>
+            )
+          )}
         </div>
 
         <Pagination
@@ -642,5 +735,17 @@ function InputField({
         {...register}
       />
     </label>
+  );
+}
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="toast-container">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast ${t.tone}`}>
+          {t.message}
+        </div>
+      ))}
+    </div>
   );
 }
