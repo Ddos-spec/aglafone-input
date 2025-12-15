@@ -314,11 +314,11 @@ export default function DashboardPage() {
             placeholder="cari barang"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 140 }}
+            style={{ width: 160 }}
           />
 
           {/* Filters */}
-          <select className="select" value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ width: 120 }}>
+          <select className="select" value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ width: 130 }}>
             <option value="all">semua stok</option>
             <option value="zero">stok habis</option>
             <option value="low">stok rendah</option>
@@ -326,16 +326,16 @@ export default function DashboardPage() {
             <option value="ok">stok aman</option>
           </select>
 
-          <select className="select" value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} style={{ width: 120 }}>
+          <select className="select" value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} style={{ width: 140 }}>
             <option value="">semua warna</option>
             {uniqueColors.slice(0, 20).map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
 
-          <select className="select" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ width: 130 }}>
+          <select className="select" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ width: 100 }}>
             {[10, 25, 50, 100].map((n) => (
-              <option key={n} value={n}>halaman tampil {n}</option>
+              <option key={n} value={n}>{n} / hal</option>
             ))}
           </select>
 
