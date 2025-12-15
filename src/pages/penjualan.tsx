@@ -53,10 +53,50 @@ export default function PenjualanPage() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [history, setHistory] = useState<SaleTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     setQueries(new Array(fields.length).fill(""));
   }, [fields.length]);
+
+  // Fetch history on mount
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  async function fetchHistory() {
+    if (!API_ENDPOINTS.riwayatPenjualan) {
+      console.log("[Penjualan] Riwayat endpoint not configured");
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      console.log("[Penjualan] Fetching riwayat from:", API_ENDPOINTS.riwayatPenjualan);
+      const response = await apiCall<any[]>(API_ENDPOINTS.riwayatPenjualan, { action: "read" });
+      console.log("[Penjualan] Riwayat response:", response);
+
+      // Map response to SaleTransaction format
+      const mapped: SaleTransaction[] = (response || []).map((row: any) => ({
+        id: row.id || row.transaction_id || `tx-${Date.now()}`,
+        customer: row.customer || row.nama_customer || "Umum",
+        timestamp: row.tanggal || row.created_at || new Date().toISOString(),
+        items: row.items || [{
+          kode: row.kode_barang || "",
+          nama: row.nama_barang || "",
+          warna: row.warna || "",
+          qty: row.qty || 0,
+          hargaJual: row.harga_jual || 0,
+          subtotal: row.total || 0,
+        }],
+        total: row.total || row.grand_total || 0,
+      }));
+      setHistory(mapped);
+    } catch (error: any) {
+      console.error("[Penjualan] Fetch riwayat error:", error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   const watchedItems = (form.watch("items") as SaleForm["items"]) || [];
   const grandTotal = watchedItems.reduce((sum: number, it: SaleForm["items"][number]) => {
@@ -242,9 +282,10 @@ export default function PenjualanPage() {
     if (lastTx) generatePDF(lastTx);
   }
 
-  function refreshHistory() {
+  async function refreshHistory() {
     setHistoryRefreshing(true);
-    setTimeout(() => setHistoryRefreshing(false), 1000);
+    await fetchHistory();
+    setHistoryRefreshing(false);
   }
 
   return (
@@ -482,6 +523,7 @@ export default function PenjualanPage() {
         sales={history}
         onRefresh={refreshHistory}
         refreshing={historyRefreshing}
+        loading={historyLoading}
         onPrint={generatePDF}
         onDelete={(id) => setHistory((prev) => prev.filter((s) => s.id !== id))}
       />
@@ -492,22 +534,25 @@ export default function PenjualanPage() {
 function History({
   sales,
   refreshing,
+  loading,
   onRefresh,
   onPrint,
   onDelete,
 }: {
   sales: SaleTransaction[];
   refreshing: boolean;
+  loading: boolean;
   onRefresh: () => void;
   onPrint: (s: SaleTransaction) => void;
   onDelete: (id: string) => void;
 }) {
+  const isLoading = loading || refreshing;
   return (
     <div className="card">
       <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
         <div className="title">History Penjualan</div>
-        <button className="btn secondary" onClick={onRefresh}>
-          {refreshing ? "Refreshing..." : "Refresh"}
+        <button className="btn secondary" onClick={onRefresh} disabled={isLoading}>
+          {isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
       <table className="table">
@@ -521,21 +566,28 @@ function History({
           </tr>
         </thead>
         <tbody>
-          {sales.slice(0, 5).map((s, idx) => (
-            <tr key={s.id}>
-              <td>{idx + 1}</td>
-              <td>{formatFriendlyDate(s.timestamp)}</td>
-              <td>{s.customer}</td>
-              <td>{formatIDR(s.total)}</td>
-              <td>
-                <div className="table-actions">
-                  <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
-                  <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {!sales.length && (
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, idx) => (
+              <tr key={idx}>
+                <td colSpan={5}><div className="skeleton" style={{ height: 20 }} /></td>
+              </tr>
+            ))
+          ) : sales.length > 0 ? (
+            sales.slice(0, 10).map((s, idx) => (
+              <tr key={s.id}>
+                <td>{idx + 1}</td>
+                <td>{formatFriendlyDate(s.timestamp)}</td>
+                <td>{s.customer}</td>
+                <td>{formatIDR(s.total)}</td>
+                <td>
+                  <div className="table-actions">
+                    <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
+                    <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
+                  </div>
+                </td>
+              </tr>
+            ))
+          ) : (
             <tr>
               <td colSpan={5} style={{ textAlign: "center", padding: 16 }}>
                 Belum ada transaksi.

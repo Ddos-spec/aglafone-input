@@ -1,5 +1,5 @@
 import imageCompression from "browser-image-compression";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
 import { API_ENDPOINTS, apiCall } from "../config/api";
@@ -49,10 +49,23 @@ export default function PembelianPage() {
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<PurchaseTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [queries, setQueries] = useState<string[]>([""]);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const [colorFocusIdx, setColorFocusIdx] = useState<number | null>(null);
 
   const form = useForm<PurchaseForm>({ defaultValues });
+
+  // Get unique colors from stock for autocomplete
+  const uniqueColors = useMemo(() => {
+    const set = new Set<string>();
+    stock.forEach((it) => {
+      it.warna.forEach((w) => {
+        if (w.trim()) set.add(w.trim().toLowerCase());
+      });
+    });
+    return Array.from(set).sort();
+  }, [stock]);
   const { fields, append, remove, update } = useFieldArray<PurchaseForm, "items">({
     control: form.control,
     name: "items",
@@ -61,6 +74,45 @@ export default function PembelianPage() {
   useEffect(() => {
     setQueries(new Array(fields.length).fill(""));
   }, [fields.length]);
+
+  // Fetch history on mount
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  async function fetchHistory() {
+    if (!API_ENDPOINTS.riwayatPembelian) {
+      console.log("[Pembelian] Riwayat endpoint not configured");
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      console.log("[Pembelian] Fetching riwayat from:", API_ENDPOINTS.riwayatPembelian);
+      const response = await apiCall<any[]>(API_ENDPOINTS.riwayatPembelian, { action: "read" });
+      console.log("[Pembelian] Riwayat response:", response);
+
+      // Map response to PurchaseTransaction format
+      const mapped: PurchaseTransaction[] = (response || []).map((row: any) => ({
+        id: row.id || row.transaction_id || `px-${Date.now()}`,
+        items: row.items || [{
+          kode: row.kode_barang || "",
+          nama: row.nama_barang || "",
+          qty: row.qty || 0,
+          hargaBeli: row.harga_beli || 0,
+          warna: row.warna || "",
+          supplier: row.supplier || "",
+          tanggal: row.tanggal || "",
+        }],
+        total: row.total || row.grand_total || 0,
+        imageUrl: row.foto_url || undefined,
+      }));
+      setHistory(mapped);
+    } catch (error: any) {
+      console.error("[Pembelian] Fetch riwayat error:", error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   const watchedItems = form.watch("items") || [];
   const grandTotal = watchedItems.reduce((sum: number, it: PurchaseFormItem) => {
@@ -243,9 +295,10 @@ export default function PembelianPage() {
     }
   }
 
-  function refreshHistory() {
+  async function refreshHistory() {
     setHistoryRefreshing(true);
-    setTimeout(() => setHistoryRefreshing(false), 1000);
+    await fetchHistory();
+    setHistoryRefreshing(false);
   }
 
   return (
@@ -398,15 +451,46 @@ export default function PembelianPage() {
                     </div>
                   </div>
 
-                  {/* Warna */}
-                  <div style={{ marginTop: 12 }}>
+                  {/* Warna with autocomplete */}
+                  <div style={{ marginTop: 12, position: "relative" }}>
                     <div className="muted small" style={{ marginBottom: 4 }}>Warna (pisah dengan koma)</div>
                     <input
                       className="input"
                       placeholder="Contoh: black, silver, gold"
                       style={{ width: "100%" }}
-                      {...form.register(`items.${idx}.warna`)}
+                      value={form.watch(`items.${idx}.warna`)}
+                      onFocus={() => setColorFocusIdx(idx)}
+                      onBlur={() => setTimeout(() => setColorFocusIdx(null), 150)}
+                      onChange={(e) => form.setValue(`items.${idx}.warna`, e.target.value)}
                     />
+                    {/* Color suggestions */}
+                    {colorFocusIdx === idx && uniqueColors.length > 0 && (
+                      <div className="card" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, maxHeight: 150, overflowY: "auto", marginTop: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", padding: 0 }}>
+                        <div className="muted small" style={{ padding: "6px 12px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc" }}>
+                          Warna tersedia (klik untuk tambah):
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: 8 }}>
+                          {uniqueColors.slice(0, 15).map((color) => (
+                            <span
+                              key={color}
+                              className="tag"
+                              style={{ cursor: "pointer" }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                const current = form.getValues(`items.${idx}.warna`) || "";
+                                const colors = current.split(",").map((c: string) => c.trim()).filter(Boolean);
+                                if (!colors.includes(color)) {
+                                  const newValue = colors.length > 0 ? `${current}, ${color}` : color;
+                                  form.setValue(`items.${idx}.warna`, newValue);
+                                }
+                              }}
+                            >
+                              {color}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Subtotal */}
@@ -493,6 +577,7 @@ export default function PembelianPage() {
         purchases={history}
         onRefresh={refreshHistory}
         refreshing={historyRefreshing}
+        loading={historyLoading}
         onDelete={(id) => setHistory((prev) => prev.filter((p) => p.id !== id))}
       />
     </div>
@@ -503,19 +588,22 @@ function History({
   purchases,
   onRefresh,
   refreshing,
+  loading,
   onDelete,
 }: {
   purchases: PurchaseTransaction[];
   onRefresh: () => void;
   refreshing: boolean;
+  loading: boolean;
   onDelete: (id: string) => void;
 }) {
+  const isLoading = loading || refreshing;
   return (
     <div className="card">
       <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
         <div className="title">History Pembelian</div>
-        <button className="btn secondary" onClick={onRefresh}>
-          {refreshing ? "Refreshing..." : "Refresh"}
+        <button className="btn secondary" onClick={onRefresh} disabled={isLoading}>
+          {isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
       <table className="table">
@@ -529,21 +617,28 @@ function History({
           </tr>
         </thead>
         <tbody>
-          {purchases.slice(0, 5).map((p, idx) => (
-            <tr key={p.id}>
-              <td>{idx + 1}</td>
-              <td>
-                {p.items.map((it) => it.nama).join(", ").slice(0, 40)}
-                {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
-              </td>
-              <td>{p.items[0]?.supplier || "-"}</td>
-              <td>{formatIDR(p.total)}</td>
-              <td>
-                <button className="btn danger" onClick={() => onDelete(p.id)}>Hapus</button>
-              </td>
-            </tr>
-          ))}
-          {!purchases.length && (
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, idx) => (
+              <tr key={idx}>
+                <td colSpan={5}><div className="skeleton" style={{ height: 20 }} /></td>
+              </tr>
+            ))
+          ) : purchases.length > 0 ? (
+            purchases.slice(0, 10).map((p, idx) => (
+              <tr key={p.id}>
+                <td>{idx + 1}</td>
+                <td>
+                  {p.items.map((it) => it.nama).join(", ").slice(0, 40)}
+                  {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
+                </td>
+                <td>{p.items[0]?.supplier || "-"}</td>
+                <td>{formatIDR(p.total)}</td>
+                <td>
+                  <button className="btn danger" onClick={() => onDelete(p.id)}>Hapus</button>
+                </td>
+              </tr>
+            ))
+          ) : (
             <tr>
               <td colSpan={5} style={{ textAlign: "center", padding: 16 }}>
                 Belum ada pembelian.
