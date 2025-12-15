@@ -75,21 +75,28 @@ export default function PenjualanPage() {
       const response = await apiCall<any[]>(API_ENDPOINTS.riwayatPenjualan, { action: "read" });
       console.log("[Penjualan] Riwayat response:", response);
 
+      // Handle both array and single object response
+      const dataArray = Array.isArray(response) ? response : [response];
+
       // Map response to SaleTransaction format
-      const mapped: SaleTransaction[] = (response || []).map((row: any) => ({
-        id: row.id || row.transaction_id || `tx-${Date.now()}`,
-        customer: row.customer || row.nama_customer || "Umum",
-        timestamp: row.tanggal || row.created_at || new Date().toISOString(),
-        items: row.items || [{
-          kode: row.kode_barang || "",
-          nama: row.nama_barang || "",
-          warna: row.warna || "",
-          qty: row.qty || 0,
-          hargaJual: row.harga_jual || 0,
-          subtotal: row.total || 0,
-        }],
-        total: row.total || row.grand_total || 0,
-      }));
+      const mapped: SaleTransaction[] = dataArray
+        .filter((row: any) => row && row.id) // Filter valid rows
+        .map((row: any, idx: number) => ({
+          id: row.id || `tx-${Date.now()}-${idx}`,
+          customer: row.customer || row.nama_customer || "Umum",
+          timestamp: row.tanggal || row.created_at || new Date().toISOString(),
+          items: [{
+            kode: row.kode_barang || "",
+            nama: row.nama_barang || "",
+            warna: row.warna || "",
+            qty: Number(row.qty) || 0,
+            hargaJual: Number(row.harga_jual) || 0,
+            subtotal: Number(row.total) || 0,
+          }],
+          total: Number(row.total) || Number(row.grand_total) || 0,
+        }));
+
+      console.log("[Penjualan] Mapped history:", mapped);
       setHistory(mapped);
     } catch (error: any) {
       console.error("[Penjualan] Fetch riwayat error:", error);
