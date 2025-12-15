@@ -34,6 +34,52 @@ button {
   padding: 0;
 }
 
+/* New Header Layout */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+
+.header-nav {
+  display: flex;
+  gap: 0;
+}
+
+.header-nav button {
+  padding: 16px 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 500;
+  color: #64748b;
+  border-bottom: 2px solid transparent;
+  transition: 0.2s ease;
+}
+
+.header-nav button:hover {
+  color: #0f172a;
+}
+
+.header-nav button.active {
+  color: var(--green);
+  border-color: var(--green);
+  font-weight: 600;
+}
+
+.header-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #0f172a;
+}
+
+.app-main {
+  padding: 16px;
+}
+
 .card {
   background: #ffffff;
   border: 1px solid var(--border);

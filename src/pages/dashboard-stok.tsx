@@ -306,57 +306,57 @@ export default function DashboardPage() {
       </div>
 
       <div className="card">
-        {/* Toolbar */}
-        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
-          <div className="flex" style={{ gap: 8, flex: 1, minWidth: 200 }}>
-            <input
-              className="input"
-              placeholder="Cari kode atau nama..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ maxWidth: 300 }}
-            />
-            <button className="btn secondary" type="button" onClick={handleRefresh} style={{ whiteSpace: "nowrap" }}>
-              {refreshing ? "Loading..." : "Refresh"}
-            </button>
-          </div>
-          <div className="flex" style={{ gap: 8 }}>
-            {selected.size > 0 && (
-              <button className="btn danger" onClick={deleteSelected}>
-                Hapus ({selected.size})
-              </button>
-            )}
-            <button className="btn secondary" onClick={() => setAdding(true)}>
-              + Tambah
-            </button>
-            <button className="btn" onClick={() => exportStockCSV(items)}>
-              Export
-            </button>
-          </div>
-        </div>
+        {/* Toolbar - Single Row: search | filters | buttons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {/* Search */}
+          <input
+            className="input"
+            placeholder="cari barang"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 140 }}
+          />
 
-        {/* Filters */}
-        <div className="flex" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <select className="select" value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ minWidth: 140 }}>
-            <option value="all">Semua Stok</option>
-            <option value="zero">Stok Habis</option>
-            <option value="low">Stok Rendah</option>
-            <option value="mid">Stok Sedang</option>
-            <option value="ok">Stok Aman</option>
+          {/* Filters */}
+          <select className="select" value={filter} onChange={(e) => setFilter(e.target.value as any)} style={{ width: 120 }}>
+            <option value="all">semua stok</option>
+            <option value="zero">stok habis</option>
+            <option value="low">stok rendah</option>
+            <option value="mid">stok sedang</option>
+            <option value="ok">stok aman</option>
           </select>
-          {uniqueColors.length > 0 && (
-            <select className="select" value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} style={{ minWidth: 120 }}>
-              <option value="">Semua Warna</option>
-              {uniqueColors.slice(0, 20).map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          )}
-          <select className="select" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-            {[10, 25, 50, 100].map((n) => (
-              <option key={n} value={n}>{n} / halaman</option>
+
+          <select className="select" value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} style={{ width: 120 }}>
+            <option value="">semua warna</option>
+            {uniqueColors.slice(0, 20).map((c) => (
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
+
+          <select className="select" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ width: 130 }}>
+            {[10, 25, 50, 100].map((n) => (
+              <option key={n} value={n}>halaman tampil {n}</option>
+            ))}
+          </select>
+
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Buttons */}
+          {selected.size > 0 && (
+            <button className="btn danger" onClick={deleteSelected}>
+              hapus ({selected.size})
+            </button>
+          )}
+          <button className="btn secondary" onClick={() => setAdding(true)}>
+            tambah
+          </button>
+          <button className="btn secondary" onClick={() => exportStockCSV(items)}>
+            expor
+          </button>
+          <button className="btn" type="button" onClick={handleRefresh}>
+            {refreshing ? "loading..." : "refresh"}
+          </button>
         </div>
 
         <div style={{ overflowX: "auto", marginTop: 12 }}>

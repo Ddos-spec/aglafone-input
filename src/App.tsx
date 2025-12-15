@@ -10,36 +10,36 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ marginBottom: 16, textAlign: "center" }}>
-        <h1 style={{ margin: 0, fontSize: "2.2rem", fontWeight: 900, letterSpacing: 0.2 }}>
-          Aglafone Input
-        </h1>
+      {/* Header - nav kiri, title kanan */}
+      <header className="app-header">
+        <nav className="header-nav">
+          <button
+            className={tab === "dashboard" ? "active" : ""}
+            onClick={() => setTab("dashboard")}
+          >
+            dashboard
+          </button>
+          <button
+            className={tab === "penjualan" ? "active" : ""}
+            onClick={() => setTab("penjualan")}
+          >
+            penjualan
+          </button>
+          <button
+            className={tab === "pembelian" ? "active" : ""}
+            onClick={() => setTab("pembelian")}
+          >
+            pembelian
+          </button>
+        </nav>
+        <div className="header-title">aglafone input</div>
       </header>
 
-      <nav className="nav">
-        <button
-          className={tab === "dashboard" ? "active" : ""}
-          onClick={() => setTab("dashboard")}
-        >
-          Dashboard Stok
-        </button>
-        <button
-          className={tab === "penjualan" ? "active" : ""}
-          onClick={() => setTab("penjualan")}
-        >
-          Penjualan
-        </button>
-        <button
-          className={tab === "pembelian" ? "active" : ""}
-          onClick={() => setTab("pembelian")}
-        >
-          Pembelian
-        </button>
-      </nav>
-
-      {tab === "dashboard" && <DashboardPage />}
-      {tab === "penjualan" && <PenjualanPage />}
-      {tab === "pembelian" && <PembelianPage />}
+      <main className="app-main">
+        {tab === "dashboard" && <DashboardPage />}
+        {tab === "penjualan" && <PenjualanPage />}
+        {tab === "pembelian" && <PembelianPage />}
+      </main>
     </div>
   );
 }
