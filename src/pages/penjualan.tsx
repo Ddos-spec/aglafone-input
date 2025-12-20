@@ -72,28 +72,12 @@ export default function PenjualanPage() {
     setHistoryLoading(true);
     try {
       console.log("[Penjualan] Fetching riwayat from:", API_ENDPOINTS.riwayatPenjualan);
-      let response: any = null;
-      let mapped: SaleTransaction[] = [];
-      let lastError: any = null;
-
-      try {
-        response = await apiGet<any>(API_ENDPOINTS.riwayatPenjualan, { timeoutMs: 20000 });
-        mapped = normalizeSaleHistory(response);
-      } catch (err) {
-        lastError = err;
-      }
-
-      if (!mapped.length) {
-        try {
-          response = await apiCall<any>(API_ENDPOINTS.riwayatPenjualan, { action: "read" }, { timeoutMs: 20000 });
-          mapped = normalizeSaleHistory(response);
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
+      const response = await apiCall<any>(API_ENDPOINTS.riwayatPenjualan, { action: "read" }, { timeoutMs: 20000 });
+      const mapped = normalizeSaleHistory(response);
       console.log("[Penjualan] Mapped history:", mapped);
-      if (!mapped.length && lastError) throw lastError;
+      if (!mapped.length) {
+        throw new Error("Data riwayat penjualan kosong dari webhook.");
+      }
       setHistory(mapped);
     } catch (error: any) {
       console.error("[Penjualan] Fetch riwayat error:", error);

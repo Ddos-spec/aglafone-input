@@ -103,39 +103,13 @@ export default function DashboardPage() {
 
       console.log("[Dashboard Stok] Fetching data from:", API_ENDPOINTS.stok);
 
-      const tryLoad = async (method: "GET" | "POST") => {
-        return method === "GET"
-          ? apiGet<any>(API_ENDPOINTS.stok, { timeoutMs: 20000 })
-          : apiCall<any>(API_ENDPOINTS.stok, { action: "read" }, { timeoutMs: 20000 });
-      };
-
-      let response: any = null;
-      let mappedItems: StockItem[] = [];
-      let lastError: any = null;
-
-      try {
-        response = await tryLoad("GET");
-        mappedItems = normalizeStockResponse(response);
-      } catch (err) {
-        lastError = err;
-      }
-
-      if (!mappedItems.length) {
-        try {
-          response = await tryLoad("POST");
-          mappedItems = normalizeStockResponse(response);
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
+      const response = await apiCall<any>(API_ENDPOINTS.stok, { action: "read" }, { timeoutMs: 20000 });
+      const mappedItems = normalizeStockResponse(response);
       console.log("[Dashboard Stok] Response:", response);
       console.log("[Dashboard Stok] Mapped items:", mappedItems.length);
-
       if (!mappedItems.length) {
-        throw lastError || new Error("Data stok kosong dari webhook.");
+        throw new Error("Data stok kosong dari webhook.");
       }
-
       setItems(mappedItems);
 
       if (isRefresh) {

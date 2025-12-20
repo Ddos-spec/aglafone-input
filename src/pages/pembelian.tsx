@@ -88,28 +88,12 @@ export default function PembelianPage() {
     setHistoryLoading(true);
     try {
       console.log("[Pembelian] Fetching riwayat from:", API_ENDPOINTS.riwayatPembelian);
-      let response: any = null;
-      let mapped: PurchaseTransaction[] = [];
-      let lastError: any = null;
-
-      try {
-        response = await apiGet<any>(API_ENDPOINTS.riwayatPembelian, { timeoutMs: 20000 });
-        mapped = normalizePurchaseHistory(response);
-      } catch (err) {
-        lastError = err;
-      }
-
-      if (!mapped.length) {
-        try {
-          response = await apiCall<any>(API_ENDPOINTS.riwayatPembelian, { action: "read" }, { timeoutMs: 20000 });
-          mapped = normalizePurchaseHistory(response);
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
+      const response = await apiCall<any>(API_ENDPOINTS.riwayatPembelian, { action: "read" }, { timeoutMs: 20000 });
+      const mapped = normalizePurchaseHistory(response);
       console.log("[Pembelian] Mapped history:", mapped);
-      if (!mapped.length && lastError) throw lastError;
+      if (!mapped.length) {
+        throw new Error("Data riwayat pembelian kosong dari webhook.");
+      }
       setHistory(mapped);
     } catch (error: any) {
       console.error("[Pembelian] Fetch riwayat error:", error);
