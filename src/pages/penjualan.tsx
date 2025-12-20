@@ -580,6 +580,12 @@ function History({
                     <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
                   </div>
                 </td>
+                <td>
+                  <div className="table-actions">
+                    <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
+                    <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
+                  </div>
+                </td>
               </tr>
             ))
           ) : (
