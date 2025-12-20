@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
-import { API_ENDPOINTS, apiGet } from "../config/api";
+import { API_ENDPOINTS, apiCall, apiGet } from "../config/api";
 import { exportStockCSV } from "../lib/export";
 import { formatIDR, stockBadge, useStockStore } from "../lib/stockStore";
 import type { StockItem } from "../lib/types";
@@ -102,12 +102,41 @@ export default function DashboardPage() {
       }
 
       console.log("[Dashboard Stok] Fetching data from:", API_ENDPOINTS.stok);
-      const response = await apiGet<any>(API_ENDPOINTS.stok, { timeoutMs: 20000 });
-      console.log("[Dashboard Stok] Response:", response);
 
-      const mappedItems = normalizeStockResponse(response);
-      setItems(mappedItems);
+      const tryLoad = async (method: "GET" | "POST") => {
+        return method === "GET"
+          ? apiGet<any>(API_ENDPOINTS.stok, { timeoutMs: 20000 })
+          : apiCall<any>(API_ENDPOINTS.stok, { action: "read" }, { timeoutMs: 20000 });
+      };
+
+      let response: any = null;
+      let mappedItems: StockItem[] = [];
+      let lastError: any = null;
+
+      try {
+        response = await tryLoad("GET");
+        mappedItems = normalizeStockResponse(response);
+      } catch (err) {
+        lastError = err;
+      }
+
+      if (!mappedItems.length) {
+        try {
+          response = await tryLoad("POST");
+          mappedItems = normalizeStockResponse(response);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      console.log("[Dashboard Stok] Response:", response);
       console.log("[Dashboard Stok] Mapped items:", mappedItems.length);
+
+      if (!mappedItems.length) {
+        throw lastError || new Error("Data stok kosong dari webhook.");
+      }
+
+      setItems(mappedItems);
 
       if (isRefresh) {
         pushToast("Data stok berhasil diperbarui", "success");
@@ -725,7 +754,7 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 }
 
 function normalizeStockResponse(payload: any): StockItem[] {
-  const raw = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  const raw = pickArray(payload);
   return raw
     .map((item: any, idx: number) => {
       const kode = String(item?.kode_barang || item?.kode || "").trim();
@@ -754,8 +783,28 @@ function normalizeStockResponse(payload: any): StockItem[] {
     .filter(Boolean) as StockItem[];
 }
 
+function pickArray(payload: any): any[] {
+  const candidates = [
+    payload?.data,
+    payload?.result,
+    payload?.records,
+    payload?.items,
+    payload?.data?.items,
+    payload,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  if (payload && typeof payload === "object") {
+    const values = Object.values(payload);
+    if (values.every((v) => typeof v === "object")) return values;
+  }
+  return [];
+}
+
 function toSafeNumber(value: any, fallback = 0) {
-  const num = Number(value);
+  const raw = typeof value === "string" ? value.replace(/[^\d.-]/g, "") : value;
+  const num = Number(raw);
   if (!Number.isFinite(num)) return fallback;
   return num;
 }

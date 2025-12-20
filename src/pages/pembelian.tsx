@@ -88,9 +88,28 @@ export default function PembelianPage() {
     setHistoryLoading(true);
     try {
       console.log("[Pembelian] Fetching riwayat from:", API_ENDPOINTS.riwayatPembelian);
-      const response = await apiGet<any>(API_ENDPOINTS.riwayatPembelian, { timeoutMs: 20000 });
-      const mapped = normalizePurchaseHistory(response);
+      let response: any = null;
+      let mapped: PurchaseTransaction[] = [];
+      let lastError: any = null;
+
+      try {
+        response = await apiGet<any>(API_ENDPOINTS.riwayatPembelian, { timeoutMs: 20000 });
+        mapped = normalizePurchaseHistory(response);
+      } catch (err) {
+        lastError = err;
+      }
+
+      if (!mapped.length) {
+        try {
+          response = await apiCall<any>(API_ENDPOINTS.riwayatPembelian, { action: "read" }, { timeoutMs: 20000 });
+          mapped = normalizePurchaseHistory(response);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
       console.log("[Pembelian] Mapped history:", mapped);
+      if (!mapped.length && lastError) throw lastError;
       setHistory(mapped);
     } catch (error: any) {
       console.error("[Pembelian] Fetch riwayat error:", error);
