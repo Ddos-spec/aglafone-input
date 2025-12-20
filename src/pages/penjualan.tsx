@@ -564,9 +564,16 @@ function History({
             sales.slice(0, 10).map((s, idx) => (
               <tr key={s.id}>
                 <td>{idx + 1}</td>
-                <td>{formatFriendlyDate(s.timestamp)}</td>
-                <td>{s.customer}</td>
-                <td>{formatIDR(s.total)}</td>
+                <td>
+                  <div>{formatFriendlyDate(s.timestamp)}</div>
+                  <div className="muted small">{s.customer}</div>
+                </td>
+                <td>
+                  <div>{formatIDR(s.total)}</div>
+                  <div className="muted small">
+                    {s.items.length} item / {countQty(s.items)} unit
+                  </div>
+                </td>
                 <td>
                   <div className="table-actions">
                     <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
@@ -656,12 +663,13 @@ function generatePDF(tx: SaleTransaction) {
   const doc = new jsPDF();
   const now = new Date(tx.timestamp);
   doc.setFontSize(14);
-  doc.text("TOKO XYZ", 14, 18);
+  doc.text("AGLAFONE", 14, 18);
   doc.setFontSize(10);
-  doc.text("Jl. Contoh No. 123", 14, 24);
-  doc.text(`No: ${tx.id}`, 14, 30);
-  doc.text(`Tanggal: ${now.toLocaleString("id-ID")}`, 14, 36);
-  doc.text(`Customer: ${tx.customer}`, 14, 42);
+  doc.text("Jl. Tidar No.23, Magersari, Kec. Magelang Sel.,", 14, 24);
+  doc.text("Kota Magelang, Jawa Tengah 59214", 14, 30);
+  doc.text(`No: ${tx.id}`, 14, 36);
+  doc.text(`Tanggal: ${now.toLocaleString("id-ID")}`, 14, 42);
+  doc.text(`Customer: ${tx.customer}`, 14, 48);
 
   autoTable(doc, {
     startY: 48,
@@ -693,4 +701,8 @@ function formatFriendlyDate(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function countQty(items: SaleItem[]) {
+  return items.reduce((sum, it) => sum + sanitizeNumber(it.qty), 0);
 }

@@ -600,6 +600,7 @@ function History({
             <th>No</th>
             <th>Items</th>
             <th>Supplier</th>
+            <th>Qty</th>
             <th>Total</th>
             <th>Aksi</th>
           </tr>
@@ -608,7 +609,7 @@ function History({
           {isLoading ? (
             Array.from({ length: 3 }).map((_, idx) => (
               <tr key={idx}>
-                <td colSpan={5}><div className="skeleton" style={{ height: 20 }} /></td>
+                <td colSpan={6}><div className="skeleton" style={{ height: 20 }} /></td>
               </tr>
             ))
           ) : purchases.length > 0 ? (
@@ -620,6 +621,7 @@ function History({
                   {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
                 </td>
                 <td>{p.items[0]?.supplier || "-"}</td>
+                <td>{p.items.length} item / {countPurchaseQty(p.items)} unit</td>
                 <td>{formatIDR(p.total)}</td>
                 <td>
                   <button className="btn danger" onClick={() => onDelete(p.id)}>Hapus</button>
@@ -628,7 +630,7 @@ function History({
             ))
           ) : (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", padding: 16 }}>
+              <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>
                 Belum ada pembelian.
               </td>
             </tr>
@@ -705,4 +707,8 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
       ))}
     </div>
   );
+}
+
+function countPurchaseQty(items: PurchaseItem[]) {
+  return items.reduce((sum, it) => sum + sanitizeNumber(it.qty), 0);
 }
