@@ -797,7 +797,9 @@ function pickArray(payload: any): any[] {
   }
   if (payload && typeof payload === "object") {
     const values = Object.values(payload);
-    if (values.every((v) => typeof v === "object")) return values;
+    if (values.length && values.every((v) => typeof v === "object")) return values;
+    // Single object fallback
+    return [payload];
   }
   return [];
 }
