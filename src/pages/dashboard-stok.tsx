@@ -622,11 +622,17 @@ function Pagination({
 }) {
   const start = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const end = Math.min(totalItems, currentPage * pageSize);
-  const pages = Array.from({ length: totalPages }, (_, i) => i + 1).slice(0, 5);
+  const windowSize = 5;
+  const startPage = Math.max(
+    1,
+    Math.min(currentPage - Math.floor(windowSize / 2), totalPages - windowSize + 1),
+  );
+  const endPage = Math.min(totalPages, startPage + windowSize - 1);
+  const pages = Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
   return (
     <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
       <div className="muted small">
-        Showing {start}-{end} of {totalItems} items
+        Showing {start}-{end} of {totalItems} items · Halaman {currentPage}/{totalPages}
       </div>
       <div className="flex">
         <button className="btn secondary" disabled={currentPage === 1} onClick={() => onPageChange(Math.max(1, currentPage - 1))}>
