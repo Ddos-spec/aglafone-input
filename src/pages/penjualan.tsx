@@ -547,8 +547,9 @@ function History({
         <thead>
           <tr>
             <th>No</th>
-            <th>Waktu</th>
+            <th>Items</th>
             <th>Customer</th>
+            <th>Qty</th>
             <th>Total</th>
             <th>Aksi</th>
           </tr>
@@ -557,7 +558,7 @@ function History({
           {isLoading ? (
             Array.from({ length: 3 }).map((_, idx) => (
               <tr key={idx}>
-                <td colSpan={5}><div className="skeleton" style={{ height: 20 }} /></td>
+                <td colSpan={6}><div className="skeleton" style={{ height: 20 }} /></td>
               </tr>
             ))
           ) : sales.length > 0 ? (
@@ -565,20 +566,15 @@ function History({
               <tr key={s.id}>
                 <td>{idx + 1}</td>
                 <td>
-                  <div>{formatFriendlyDate(s.timestamp)}</div>
-                  <div className="muted small">{s.customer}</div>
+                  <div>{s.items.map((it) => it.nama).join(", ").slice(0, 40)}</div>
+                  <div className="muted small">{formatFriendlyDate(s.timestamp)}</div>
+                </td>
+                <td>{s.customer}</td>
+                <td>
+                  {s.items.length} item / {countQty(s.items)} unit
                 </td>
                 <td>
                   <div>{formatIDR(s.total)}</div>
-                  <div className="muted small">
-                    {s.items.length} item / {countQty(s.items)} unit
-                  </div>
-                </td>
-                <td>
-                  <div className="table-actions">
-                    <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
-                    <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
-                  </div>
                 </td>
                 <td>
                   <div className="table-actions">
@@ -590,7 +586,7 @@ function History({
             ))
           ) : (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", padding: 16 }}>
+              <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>
                 Belum ada transaksi.
               </td>
             </tr>
