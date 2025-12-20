@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
-import { API_ENDPOINTS, apiCall } from "../config/api";
+import { API_ENDPOINTS, apiGet } from "../config/api";
 import { exportStockCSV } from "../lib/export";
 import { formatIDR, stockBadge, useStockStore } from "../lib/stockStore";
 import type { StockItem } from "../lib/types";
@@ -97,27 +97,15 @@ export default function DashboardPage() {
       }
       setFetchError(null);
 
+      if (!API_ENDPOINTS.stok) {
+        throw new Error("Endpoint webhook stok belum dikonfigurasi.");
+      }
+
       console.log("[Dashboard Stok] Fetching data from:", API_ENDPOINTS.stok);
-      console.log("[Dashboard Stok] Payload:", { action: "read" });
-
-      const response = await apiCall<ApiStockItem[]>(API_ENDPOINTS.stok, { action: "read" });
-
+      const response = await apiGet<any>(API_ENDPOINTS.stok, { timeoutMs: 20000 });
       console.log("[Dashboard Stok] Response:", response);
 
-      // Map API response to StockItem format
-      const mappedItems: StockItem[] = (response || []).map((item, idx) => ({
-        id: `stok-${item.kode_barang}-${idx}`,
-        kode: item.kode_barang,
-        nama: item.nama_barang,
-        qty: item.stok_akhir,
-        hargaBeli: item.harga_beli,
-        hargaJual: item.harga_jual,
-        warna: item.warna ? item.warna.split(",").map((w) => w.trim()).filter(Boolean) : [],
-        variantStock: item.warna
-          ? item.warna.split(",").map((w) => w.trim()).filter(Boolean).map((w) => ({ name: w, qty: item.stok_akhir }))
-          : [],
-      }));
-
+      const mappedItems = normalizeStockResponse(response);
       setItems(mappedItems);
       console.log("[Dashboard Stok] Mapped items:", mappedItems.length);
 
@@ -734,4 +722,40 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
       ))}
     </div>
   );
+}
+
+function normalizeStockResponse(payload: any): StockItem[] {
+  const raw = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  return raw
+    .map((item: any, idx: number) => {
+      const kode = String(item?.kode_barang || item?.kode || "").trim();
+      const nama = String(item?.nama_barang || item?.nama || "").trim();
+      if (!kode || !nama) return null;
+      const qty = toSafeNumber(
+        item?.stok_akhir ?? item?.qty ?? item?.stok ?? item?.stock ?? item?.jumlah,
+      );
+      const hargaBeli = toSafeNumber(item?.harga_beli ?? item?.hargaBeli);
+      const hargaJual = toSafeNumber(item?.harga_jual ?? item?.hargaJual ?? hargaBeli * 1.2);
+      const warnaString = String(item?.warna || "").trim();
+      const warnaList = warnaString
+        ? warnaString.split(",").map((w: string) => w.trim()).filter(Boolean)
+        : [];
+      return {
+        id: String(item?.id || `stok-${kode}-${idx}`),
+        kode,
+        nama,
+        qty,
+        hargaBeli,
+        hargaJual,
+        warna: warnaList,
+        variantStock: warnaList.map((w) => ({ name: w, qty })),
+      };
+    })
+    .filter(Boolean) as StockItem[];
+}
+
+function toSafeNumber(value: any, fallback = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return num;
 }

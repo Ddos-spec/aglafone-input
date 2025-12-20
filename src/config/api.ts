@@ -28,6 +28,7 @@ export const API_ENDPOINTS = {
 
 type ApiCallOptions = {
   timeoutMs?: number;
+  headers?: Record<string, string>;
 };
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -38,10 +39,12 @@ const mapNetworkErrorMessage = (error: any) => {
   return error?.message || "Terjadi kesalahan jaringan.";
 };
 
-// Helper function untuk API calls dengan timeout dan handling error
-export const apiCall = async <TResponse>(
+type RequestMethod = "GET" | "POST";
+
+const requestWithTimeout = async <TResponse>(
   endpoint: string | undefined,
-  data: unknown,
+  method: RequestMethod,
+  data?: unknown,
   options?: ApiCallOptions,
 ): Promise<TResponse> => {
   if (!endpoint) {
@@ -54,11 +57,12 @@ export const apiCall = async <TResponse>(
 
   try {
     const response = await fetch(endpoint, {
-      method: "POST",
+      method,
       headers: {
         "Content-Type": "application/json",
+        ...options?.headers,
       },
-      body: JSON.stringify(data),
+      body: method === "POST" ? JSON.stringify(data) : undefined,
       signal: controller.signal,
     });
 
@@ -101,3 +105,16 @@ export const apiCall = async <TResponse>(
     clearTimeout(timeoutId);
   }
 };
+
+// Helper POST (backward compatible)
+export const apiCall = async <TResponse>(
+  endpoint: string | undefined,
+  data: unknown,
+  options?: ApiCallOptions,
+): Promise<TResponse> => requestWithTimeout<TResponse>(endpoint, "POST", data, options);
+
+// Helper GET untuk tarik data (stok/riwayat)
+export const apiGet = async <TResponse>(
+  endpoint: string | undefined,
+  options?: ApiCallOptions,
+): Promise<TResponse> => requestWithTimeout<TResponse>(endpoint, "GET", undefined, options);

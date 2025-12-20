@@ -2,7 +2,7 @@ import imageCompression from "browser-image-compression";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
-import { API_ENDPOINTS, apiCall } from "../config/api";
+import { API_ENDPOINTS, apiCall, apiGet } from "../config/api";
 import { exportPurchaseCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { PurchaseItem, PurchaseTransaction, StockItem } from "../lib/types";
@@ -88,30 +88,8 @@ export default function PembelianPage() {
     setHistoryLoading(true);
     try {
       console.log("[Pembelian] Fetching riwayat from:", API_ENDPOINTS.riwayatPembelian);
-      const response = await apiCall<any[]>(API_ENDPOINTS.riwayatPembelian, { action: "read" });
-      console.log("[Pembelian] Riwayat response:", response);
-
-      // Handle both array and single object response
-      const dataArray = Array.isArray(response) ? response : [response];
-
-      // Map response to PurchaseTransaction format
-      const mapped: PurchaseTransaction[] = dataArray
-        .filter((row: any) => row && row.id) // Filter valid rows
-        .map((row: any, idx: number) => ({
-          id: row.id || `px-${Date.now()}-${idx}`,
-          items: [{
-            kode: row.kode_barang || "",
-            nama: row.nama_barang || "",
-            qty: Number(row.qty) || 0,
-            hargaBeli: Number(row.harga_beli) || 0,
-            warna: row.warna || "",
-            supplier: row.supplier || "",
-            tanggal: row.tanggal || "",
-          }],
-          total: Number(row.total) || Number(row.grand_total) || 0,
-          imageUrl: row.foto_url || undefined,
-        }));
-
+      const response = await apiGet<any>(API_ENDPOINTS.riwayatPembelian, { timeoutMs: 20000 });
+      const mapped = normalizePurchaseHistory(response);
       console.log("[Pembelian] Mapped history:", mapped);
       setHistory(mapped);
     } catch (error: any) {
@@ -656,6 +634,62 @@ function History({
       </table>
     </div>
   );
+}
+
+function normalizePurchaseHistory(payload: any): PurchaseTransaction[] {
+  const raw = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  return raw
+    .map((row: any, idx: number) => {
+      const id = sanitizeString(row?.id || row?.kode_transaksi || row?.kode || `px-${idx}`);
+      if (!id) return null;
+      const itemsSource = Array.isArray(row?.items) && row.items.length ? row.items : [row];
+      const items: PurchaseItem[] = itemsSource
+        .map((it: any) => {
+          const kode = sanitizeString(it?.kode || it?.kode_barang || row?.kode_barang);
+          const nama = sanitizeString(it?.nama || it?.nama_barang || row?.nama_barang);
+          if (!kode || !nama) return null;
+          const qty = Math.max(0, sanitizeNumber(it?.qty ?? it?.jumlah ?? row?.qty));
+          const hargaBeli = Math.max(
+            0,
+            sanitizeNumber(it?.hargaBeli ?? it?.harga_beli ?? row?.harga_beli),
+          );
+          const warna = sanitizeString(it?.warna || row?.warna || "");
+          const supplier = sanitizeString(it?.supplier || row?.supplier);
+          const tanggal = parseTimestamp(it?.tanggal || row?.tanggal || row?.created_at);
+          const imageUrl = sanitizeString(it?.foto_url || it?.imageUrl || row?.foto_url);
+          return {
+            kode,
+            nama,
+            qty,
+            hargaBeli,
+            supplier,
+            warna,
+            tanggal,
+            imageUrl,
+          };
+        })
+        .filter(Boolean) as PurchaseItem[];
+
+      const totalFromItems = items.reduce((sum, it) => sum + it.qty * it.hargaBeli, 0);
+      const total = Math.max(
+        0,
+        sanitizeNumber(row?.total ?? row?.grand_total ?? totalFromItems),
+      );
+
+      return {
+        id,
+        items,
+        total,
+        imageUrl: items[0]?.imageUrl,
+      };
+    })
+    .filter(Boolean) as PurchaseTransaction[];
+}
+
+function parseTimestamp(value: any) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
 }
 
 function ToastContainer({ toasts }: { toasts: Toast[] }) {

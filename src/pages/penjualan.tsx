@@ -2,7 +2,7 @@ import autoTable from "jspdf-autotable";
 import jsPDF from "jspdf";
 import { useEffect, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
-import { API_ENDPOINTS, apiCall } from "../config/api";
+import { API_ENDPOINTS, apiCall, apiGet } from "../config/api";
 import { exportSalesCSV } from "../lib/export";
 import { formatIDR, useStockStore } from "../lib/stockStore";
 import type { SaleItem, SaleTransaction, StockItem } from "../lib/types";
@@ -72,30 +72,8 @@ export default function PenjualanPage() {
     setHistoryLoading(true);
     try {
       console.log("[Penjualan] Fetching riwayat from:", API_ENDPOINTS.riwayatPenjualan);
-      const response = await apiCall<any[]>(API_ENDPOINTS.riwayatPenjualan, { action: "read" });
-      console.log("[Penjualan] Riwayat response:", response);
-
-      // Handle both array and single object response
-      const dataArray = Array.isArray(response) ? response : [response];
-
-      // Map response to SaleTransaction format
-      const mapped: SaleTransaction[] = dataArray
-        .filter((row: any) => row && row.id) // Filter valid rows
-        .map((row: any, idx: number) => ({
-          id: row.id || `tx-${Date.now()}-${idx}`,
-          customer: row.customer || row.nama_customer || "Umum",
-          timestamp: row.tanggal || row.created_at || new Date().toISOString(),
-          items: [{
-            kode: row.kode_barang || "",
-            nama: row.nama_barang || "",
-            warna: row.warna || "",
-            qty: Number(row.qty) || 0,
-            hargaJual: Number(row.harga_jual) || 0,
-            subtotal: Number(row.total) || 0,
-          }],
-          total: Number(row.total) || Number(row.grand_total) || 0,
-        }));
-
+      const response = await apiGet<any>(API_ENDPOINTS.riwayatPenjualan, { timeoutMs: 20000 });
+      const mapped = normalizeSaleHistory(response);
       console.log("[Penjualan] Mapped history:", mapped);
       setHistory(mapped);
     } catch (error: any) {
@@ -617,6 +595,58 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
       ))}
     </div>
   );
+}
+
+function normalizeSaleHistory(payload: any): SaleTransaction[] {
+  const raw = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  return raw
+    .map((row: any, idx: number) => {
+      const id = sanitizeString(row?.id || row?.kode_transaksi || row?.kode || `tx-${idx}`);
+      if (!id) return null;
+      const itemsSource = Array.isArray(row?.items) && row.items.length ? row.items : [row];
+      const items: SaleItem[] = itemsSource
+        .map((it: any) => {
+          const kode = sanitizeString(it?.kode || it?.kode_barang || row?.kode_barang);
+          const nama = sanitizeString(it?.nama || it?.nama_barang || row?.nama_barang);
+          if (!kode || !nama) return null;
+          const warna = sanitizeString(it?.warna || row?.warna || "");
+          const qty = Math.max(0, sanitizeNumber(it?.qty ?? it?.jumlah ?? row?.qty));
+          const hargaJual = Math.max(
+            0,
+            sanitizeNumber(it?.hargaJual ?? it?.harga_jual ?? row?.harga_jual),
+          );
+          return {
+            kode,
+            nama,
+            warna,
+            qty,
+            hargaJual,
+            subtotal: qty * hargaJual,
+          };
+        })
+        .filter(Boolean) as SaleItem[];
+
+      const totalFromItems = items.reduce((sum, it) => sum + it.subtotal, 0);
+      const total = Math.max(
+        0,
+        sanitizeNumber(row?.total ?? row?.grand_total ?? totalFromItems),
+      );
+
+      return {
+        id,
+        customer: sanitizeString(row?.customer || row?.nama_customer) || "Umum",
+        timestamp: parseTimestamp(row?.timestamp || row?.tanggal || row?.created_at),
+        items,
+        total,
+      };
+    })
+    .filter(Boolean) as SaleTransaction[];
+}
+
+function parseTimestamp(value: any) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
 }
 
 function generatePDF(tx: SaleTransaction) {
