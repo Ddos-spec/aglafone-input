@@ -76,10 +76,7 @@ export default function PenjualanPage() {
       const response = await apiCall<any>(API_ENDPOINTS.riwayatPenjualan, { action: "read" }, { timeoutMs: 20000 });
       const mapped = normalizeSaleHistory(response);
       console.log("[Penjualan] Mapped history:", mapped);
-      if (!mapped.length) {
-        throw new Error("Data riwayat penjualan kosong dari webhook.");
-      }
-      setHistory(mapped);
+      setHistory(mapped); // Selalu update, bahkan jika kosong
     } catch (error: any) {
       console.error("[Penjualan] Fetch riwayat error:", error);
     } finally {
