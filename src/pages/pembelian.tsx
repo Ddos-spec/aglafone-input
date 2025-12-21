@@ -619,6 +619,7 @@ function History({
   onDelete: (p: PurchaseTransaction) => void;
   deletingId: string | null;
 }) {
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const isLoading = loading || refreshing;
   return (
     <div className="card">
@@ -632,6 +633,7 @@ function History({
         <thead>
           <tr>
             <th>No</th>
+            <th>Foto</th>
             <th>Items</th>
             <th>Supplier</th>
             <th>Qty</th>
@@ -643,7 +645,7 @@ function History({
           {isLoading ? (
             Array.from({ length: 3 }).map((_, idx) => (
               <tr key={idx}>
-                <td colSpan={6}><div className="skeleton" style={{ height: 20 }} /></td>
+                <td colSpan={7}><div className="skeleton" style={{ height: 20 }} /></td>
               </tr>
             ))
           ) : purchases.length > 0 ? (
@@ -652,6 +654,26 @@ function History({
               return (
                 <tr key={p.id} style={isDeleting ? { opacity: 0.5 } : undefined}>
                   <td>{idx + 1}</td>
+                  <td>
+                    {p.imageUrl ? (
+                      <div
+                        style={{
+                          width: 40,
+                          height: 40,
+                          backgroundImage: `url(${p.imageUrl})`,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          border: "1px solid #e2e8f0",
+                        }}
+                        onClick={() => setPreviewImage(p.imageUrl || null)}
+                        title="Klik untuk memperbesar"
+                      />
+                    ) : (
+                      <span className="muted small">-</span>
+                    )}
+                  </td>
                   <td>
                     {p.items.map((it) => it.nama).join(", ").slice(0, 40)}
                     {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
@@ -669,13 +691,61 @@ function History({
             })
           ) : (
             <tr>
-              <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>
+              <td colSpan={7} style={{ textAlign: "center", padding: 16 }}>
                 Belum ada pembelian.
               </td>
             </tr>
           )}
         </tbody>
       </table>
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPreviewImage(null)}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            style={{
+              position: "relative",
+              maxWidth: "90vw",
+              maxHeight: "90vh",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={previewImage}
+              alt="Preview"
+              style={{
+                maxWidth: "90vw",
+                maxHeight: "85vh",
+                borderRadius: 8,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+              }}
+            />
+            <button
+              className="btn secondary"
+              onClick={() => setPreviewImage(null)}
+              style={{
+                position: "absolute",
+                top: -12,
+                right: -12,
+                borderRadius: "50%",
+                width: 32,
+                height: 32,
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "1.2rem",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -720,11 +790,15 @@ function normalizePurchaseHistory(payload: any): PurchaseTransaction[] {
         sanitizeNumber(row?.total ?? row?.grand_total ?? totalFromItems),
       );
 
+      // Ambil imageUrl dari row level atau item level
+      const rowImageUrl = sanitizeString(row?.foto_url || row?.imageUrl || row?.image_url);
+      const itemImageUrl = items[0]?.imageUrl;
+
       return {
         id,
         items,
         total,
-        imageUrl: items[0]?.imageUrl,
+        imageUrl: rowImageUrl || itemImageUrl || undefined,
         rowNumber: idx + 2, // Row 1 = header, data mulai dari row 2
       };
     })
