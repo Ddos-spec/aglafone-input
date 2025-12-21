@@ -54,6 +54,7 @@ export default function PenjualanPage() {
   const [history, setHistory] = useState<SaleTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     setQueries(new Array(fields.length).fill(""));
@@ -274,6 +275,36 @@ export default function PenjualanPage() {
     setHistoryRefreshing(true);
     await fetchHistory();
     setHistoryRefreshing(false);
+  }
+
+  async function handleDeleteHistory(sale: SaleTransaction) {
+    if (!sale.rowNumber) {
+      pushToast("Tidak dapat menghapus: data row tidak valid.", "error");
+      return;
+    }
+    if (!API_ENDPOINTS.hapusRiwayatPenjualan) {
+      pushToast("Webhook hapus riwayat penjualan belum dikonfigurasi.", "error");
+      return;
+    }
+
+    setDeletingId(sale.id);
+    try {
+      const payload = {
+        startRow: sale.rowNumber,
+        numberOfRows: 1,
+      };
+      console.log("[Penjualan] Deleting row:", payload);
+      const response = await apiCall<any>(API_ENDPOINTS.hapusRiwayatPenjualan, payload, { timeoutMs: 20000 });
+      console.log("[Penjualan] Delete response:", response);
+      pushToast("Riwayat berhasil dihapus!", "success");
+      // Refetch untuk update rowNumber semua item
+      await fetchHistory();
+    } catch (error: any) {
+      console.error("[Penjualan] Delete error:", error);
+      pushToast(error?.message || "Gagal menghapus riwayat.", "error");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -513,7 +544,8 @@ export default function PenjualanPage() {
         refreshing={historyRefreshing}
         loading={historyLoading}
         onPrint={generatePDF}
-        onDelete={(id) => setHistory((prev) => prev.filter((s) => s.id !== id))}
+        onDelete={handleDeleteHistory}
+        deletingId={deletingId}
       />
     </div>
   );
@@ -526,13 +558,15 @@ function History({
   onRefresh,
   onPrint,
   onDelete,
+  deletingId,
 }: {
   sales: SaleTransaction[];
   refreshing: boolean;
   loading: boolean;
   onRefresh: () => void;
   onPrint: (s: SaleTransaction) => void;
-  onDelete: (id: string) => void;
+  onDelete: (s: SaleTransaction) => void;
+  deletingId: string | null;
 }) {
   const isLoading = loading || refreshing;
   return (
@@ -562,28 +596,33 @@ function History({
               </tr>
             ))
           ) : sales.length > 0 ? (
-            sales.slice(0, 10).map((s, idx) => (
-              <tr key={s.id}>
-                <td>{idx + 1}</td>
-                <td>
-                  <div>{s.items.map((it) => it.nama).join(", ").slice(0, 40)}</div>
-                  <div className="muted small">{formatFriendlyDate(s.timestamp)}</div>
-                </td>
-                <td>{s.customer}</td>
-                <td>
-                  {s.items.length} item / {countQty(s.items)} unit
-                </td>
-                <td>
-                  <div>{formatIDR(s.total)}</div>
-                </td>
-                <td>
-                  <div className="table-actions">
-                    <button className="btn secondary" onClick={() => onPrint(s)}>Print</button>
-                    <button className="btn danger" onClick={() => onDelete(s.id)}>Hapus</button>
-                  </div>
-                </td>
-              </tr>
-            ))
+            sales.slice(0, 10).map((s, idx) => {
+              const isDeleting = deletingId === s.id;
+              return (
+                <tr key={s.id} style={isDeleting ? { opacity: 0.5 } : undefined}>
+                  <td>{idx + 1}</td>
+                  <td>
+                    <div>{s.items.map((it) => it.nama).join(", ").slice(0, 40)}</div>
+                    <div className="muted small">{formatFriendlyDate(s.timestamp)}</div>
+                  </td>
+                  <td>{s.customer}</td>
+                  <td>
+                    {s.items.length} item / {countQty(s.items)} unit
+                  </td>
+                  <td>
+                    <div>{formatIDR(s.total)}</div>
+                  </td>
+                  <td>
+                    <div className="table-actions">
+                      <button className="btn secondary" onClick={() => onPrint(s)} disabled={isDeleting}>Print</button>
+                      <button className="btn danger" onClick={() => onDelete(s)} disabled={isDeleting || !!deletingId}>
+                        {isDeleting ? "Menghapus..." : "Hapus"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
           ) : (
             <tr>
               <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>
@@ -650,6 +689,7 @@ function normalizeSaleHistory(payload: any): SaleTransaction[] {
         timestamp: parseTimestamp(row?.timestamp || row?.tanggal || row?.created_at),
         items,
         total,
+        rowNumber: idx + 2, // Row 1 = header, data mulai dari row 2
       };
     })
     .filter(Boolean) as SaleTransaction[];
