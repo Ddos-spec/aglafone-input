@@ -92,10 +92,7 @@ export default function PembelianPage() {
       const response = await apiCall<any>(API_ENDPOINTS.riwayatPembelian, { action: "read" }, { timeoutMs: 20000 });
       const mapped = normalizePurchaseHistory(response);
       console.log("[Pembelian] Mapped history:", mapped);
-      if (!mapped.length) {
-        throw new Error("Data riwayat pembelian kosong dari webhook.");
-      }
-      setHistory(mapped);
+      setHistory(mapped); // Selalu update, bahkan jika kosong
     } catch (error: any) {
       console.error("[Pembelian] Fetch riwayat error:", error);
     } finally {

@@ -108,10 +108,7 @@ export default function DashboardPage() {
       const mappedItems = normalizeStockResponse(response);
       console.log("[Dashboard Stok] Response:", response);
       console.log("[Dashboard Stok] Mapped items:", mappedItems.length);
-      if (!mappedItems.length) {
-        throw new Error("Data stok kosong dari webhook.");
-      }
-      setItems(mappedItems);
+      setItems(mappedItems); // Selalu update, bahkan jika kosong
 
       if (isRefresh) {
         pushToast("Data stok berhasil diperbarui", "success");
