@@ -60,6 +60,7 @@ export default function DashboardPage() {
   const [adding, setAdding] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<StockItem | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deletingStock, setDeletingStock] = useState(false);
 
   const editForm = useForm<AddForm>({
     defaultValues: {
@@ -218,6 +219,37 @@ export default function DashboardPage() {
 
   function handleRefresh() {
     fetchStokData(true);
+  }
+
+  async function handleDeleteStock(item: StockItem) {
+    if (!item.rowNumber) {
+      pushToast("Tidak dapat menghapus: data row tidak valid.", "error");
+      return;
+    }
+    if (!API_ENDPOINTS.hapusRiwayatStok) {
+      pushToast("Webhook hapus stok belum dikonfigurasi.", "error");
+      return;
+    }
+
+    setDeletingStock(true);
+    try {
+      const payload = {
+        startRow: item.rowNumber,
+        numberOfRows: 1,
+      };
+      console.log("[Stok] Deleting row:", payload);
+      const response = await apiCall<any>(API_ENDPOINTS.hapusRiwayatStok, payload, { timeoutMs: 20000 });
+      console.log("[Stok] Delete response:", response);
+      pushToast("Stok berhasil dihapus!", "success");
+      setConfirmDelete(null);
+      // Refetch untuk update rowNumber semua item
+      await fetchStokData(true);
+    } catch (error: any) {
+      console.error("[Stok] Delete error:", error);
+      pushToast(error?.message || "Gagal menghapus stok.", "error");
+    } finally {
+      setDeletingStock(false);
+    }
   }
 
   function openEdit(item: StockItem) {
@@ -526,20 +558,18 @@ export default function DashboardPage() {
       )}
 
       {confirmDelete && (
-        <Modal onClose={() => setConfirmDelete(null)} title="Konfirmasi Hapus">
+        <Modal onClose={() => !deletingStock && setConfirmDelete(null)} title="Konfirmasi Hapus">
           <p>Yakin hapus {confirmDelete.nama}?</p>
           <div className="flex" style={{ justifyContent: "flex-end" }}>
-            <button className="btn secondary" onClick={() => setConfirmDelete(null)}>
+            <button className="btn secondary" onClick={() => setConfirmDelete(null)} disabled={deletingStock}>
               Batal
             </button>
             <button
               className="btn danger"
-              onClick={() => {
-                removeItem(confirmDelete.id);
-                setConfirmDelete(null);
-              }}
+              onClick={() => handleDeleteStock(confirmDelete)}
+              disabled={deletingStock}
             >
-              Hapus
+              {deletingStock ? "Menghapus..." : "Hapus"}
             </button>
           </div>
         </Modal>
@@ -758,6 +788,7 @@ function normalizeStockResponse(payload: any): StockItem[] {
         hargaJual,
         warna: warnaList,
         variantStock: warnaList.map((w) => ({ name: w, qty })),
+        rowNumber: idx + 2, // Row 1 = header, data mulai dari row 2
       };
     })
     .filter(Boolean) as StockItem[];

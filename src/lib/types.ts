@@ -7,6 +7,7 @@ export type StockItem = {
   hargaJual: number;
   warna: string[]; // legacy simple colors
   variantStock?: { name: string; qty: number }[]; // stok per warna
+  rowNumber?: number; // Row number di Google Sheet (untuk delete)
 };
 
 export type SaleItem = {
@@ -35,6 +36,7 @@ export type SaleTransaction = {
   timestamp: string;
   items: SaleItem[];
   total: number;
+  rowNumber?: number; // Row number di Google Sheet (untuk delete)
 };
 
 export type PurchaseTransaction = {
@@ -42,4 +44,5 @@ export type PurchaseTransaction = {
   items: PurchaseItem[];
   total: number;
   imageUrl?: string;
+  rowNumber?: number; // Row number di Google Sheet (untuk delete)
 };

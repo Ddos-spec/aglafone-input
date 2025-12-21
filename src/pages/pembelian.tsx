@@ -50,6 +50,7 @@ export default function PembelianPage() {
   const [history, setHistory] = useState<PurchaseTransaction[]>([]);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [queries, setQueries] = useState<string[]>([""]);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [colorFocusIdx, setColorFocusIdx] = useState<number | null>(null);
@@ -287,6 +288,36 @@ export default function PembelianPage() {
     setHistoryRefreshing(true);
     await fetchHistory();
     setHistoryRefreshing(false);
+  }
+
+  async function handleDeleteHistory(purchase: PurchaseTransaction) {
+    if (!purchase.rowNumber) {
+      pushToast("Tidak dapat menghapus: data row tidak valid.", "error");
+      return;
+    }
+    if (!API_ENDPOINTS.hapusRiwayatPembelian) {
+      pushToast("Webhook hapus riwayat pembelian belum dikonfigurasi.", "error");
+      return;
+    }
+
+    setDeletingId(purchase.id);
+    try {
+      const payload = {
+        startRow: purchase.rowNumber,
+        numberOfRows: 1,
+      };
+      console.log("[Pembelian] Deleting row:", payload);
+      const response = await apiCall<any>(API_ENDPOINTS.hapusRiwayatPembelian, payload, { timeoutMs: 20000 });
+      console.log("[Pembelian] Delete response:", response);
+      pushToast("Riwayat berhasil dihapus!", "success");
+      // Refetch untuk update rowNumber semua item
+      await fetchHistory();
+    } catch (error: any) {
+      console.error("[Pembelian] Delete error:", error);
+      pushToast(error?.message || "Gagal menghapus riwayat.", "error");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -566,7 +597,8 @@ export default function PembelianPage() {
         onRefresh={refreshHistory}
         refreshing={historyRefreshing}
         loading={historyLoading}
-        onDelete={(id) => setHistory((prev) => prev.filter((p) => p.id !== id))}
+        onDelete={handleDeleteHistory}
+        deletingId={deletingId}
       />
     </div>
   );
@@ -578,12 +610,14 @@ function History({
   refreshing,
   loading,
   onDelete,
+  deletingId,
 }: {
   purchases: PurchaseTransaction[];
   onRefresh: () => void;
   refreshing: boolean;
   loading: boolean;
-  onDelete: (id: string) => void;
+  onDelete: (p: PurchaseTransaction) => void;
+  deletingId: string | null;
 }) {
   const isLoading = loading || refreshing;
   return (
@@ -613,21 +647,26 @@ function History({
               </tr>
             ))
           ) : purchases.length > 0 ? (
-            purchases.slice(0, 10).map((p, idx) => (
-              <tr key={p.id}>
-                <td>{idx + 1}</td>
-                <td>
-                  {p.items.map((it) => it.nama).join(", ").slice(0, 40)}
-                  {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
-                </td>
-                <td>{p.items[0]?.supplier || "-"}</td>
-                <td>{p.items.length} item / {countPurchaseQty(p.items)} unit</td>
-                <td>{formatIDR(p.total)}</td>
-                <td>
-                  <button className="btn danger" onClick={() => onDelete(p.id)}>Hapus</button>
-                </td>
-              </tr>
-            ))
+            purchases.slice(0, 10).map((p, idx) => {
+              const isDeleting = deletingId === p.id;
+              return (
+                <tr key={p.id} style={isDeleting ? { opacity: 0.5 } : undefined}>
+                  <td>{idx + 1}</td>
+                  <td>
+                    {p.items.map((it) => it.nama).join(", ").slice(0, 40)}
+                    {p.items.map((it) => it.nama).join(", ").length > 40 && "..."}
+                  </td>
+                  <td>{p.items[0]?.supplier || "-"}</td>
+                  <td>{p.items.length} item / {countPurchaseQty(p.items)} unit</td>
+                  <td>{formatIDR(p.total)}</td>
+                  <td>
+                    <button className="btn danger" onClick={() => onDelete(p)} disabled={isDeleting || !!deletingId}>
+                      {isDeleting ? "Menghapus..." : "Hapus"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })
           ) : (
             <tr>
               <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>
@@ -686,6 +725,7 @@ function normalizePurchaseHistory(payload: any): PurchaseTransaction[] {
         items,
         total,
         imageUrl: items[0]?.imageUrl,
+        rowNumber: idx + 2, // Row 1 = header, data mulai dari row 2
       };
     })
     .filter(Boolean) as PurchaseTransaction[];
